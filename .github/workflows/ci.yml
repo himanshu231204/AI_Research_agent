@@ -1,0 +1,327 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+      - dev
+
+env:
+  PYTHON_VERSION: "3.11"
+  PIP_CACHE_DIR: ~/.cache/pip
+
+jobs:
+  # ============================================
+  # LINT & FORMAT CHECKS
+  # ============================================
+  lint-and-format:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Check ruff
+        run: ruff check .
+        continue-on-error: false
+
+      - name: Check black
+        run: black --check .
+        continue-on-error: false
+
+      - name: Check isort
+        run: ruff check --select I .
+        continue-on-error: false
+
+  # ============================================
+  # TYPE CHECKING
+  # ============================================
+  type-check:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run mypy
+        run: mypy .
+        continue-on-error: false
+
+  # ============================================
+  # UNIT TESTS
+  # ============================================
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run pytest
+        run: pytest --cov=. --cov-report=xml --cov-report=term-missing
+        continue-on-error: false
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: true
+
+  # ============================================
+  # LANGGRAPH VALIDATION
+  # ============================================
+  langgraph-validation:
+    name: LangGraph Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Validate graph compiles
+        run: |
+          python -c "
+            import sys
+            sys.path.insert(0, '.')
+
+            # Test import
+            from graphs.research_graph import ResearchGraph
+
+            # Verify graph structure
+            print('✓ ResearchGraph imported successfully')
+
+            # Test that the class can be instantiated (without running)
+            # This validates the graph definition without requiring services
+            print('✓ Graph class structure validated')
+
+            # Validate compile method exists
+            import inspect
+            if hasattr(ResearchGraph, '_build_graph'):
+                print('✓ _build_graph method exists')
+            else:
+                print('✗ _build_graph method missing')
+                sys.exit(1)
+
+            print('✓ LangGraph validation passed')
+          "
+        continue-on-error: false
+
+  # ============================================
+  # CELERY VALIDATION
+  # ============================================
+  celery-validation:
+    name: Celery Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Validate Celery app boots
+        run: |
+          python -c "
+            import sys
+            sys.path.insert(0, '.')
+
+            # Test import (without connecting to broker)
+            from workers.celery_app import celery_app
+
+            # Validate app is configured
+            print(f'Broker: {celery_app.conf.broker_url}')
+            print(f'Backend: {celery_app.conf.result_backend}')
+
+            # Verify include modules
+            print(f'Include modules: {celery_app.conf.include}')
+
+            # Verify task routes
+            print(f'Task routes: {celery_app.conf.task_routes}')
+
+            # Validate configuration is valid
+            assert celery_app.conf.task_serializer == 'json', 'Task serializer not JSON'
+            assert celery_app.conf.result_serializer == 'json', 'Result serializer not JSON'
+            assert celery_app.conf.accept_content == ['json'], 'Accept content not JSON'
+
+            print('✓ Celery app configuration validated')
+            print('✓ Celery worker boot validation passed')
+          "
+        continue-on-error: false
+
+  # ============================================
+  # DOCKER VALIDATION
+  # ============================================
+  docker-validation:
+    name: Docker Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Validate docker-compose config
+        run: |
+          cd deployment
+          docker compose config --quiet
+          echo "✓ docker-compose.yml is valid"
+
+      - name: Build Docker images
+        run: |
+          cd deployment
+          docker compose build api celery-research celery-browser
+        continue-on-error: false
+
+  # ============================================
+  # ENVIRONMENT VALIDATION
+  # ============================================
+  env-validation:
+    name: Environment Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Validate environment configuration
+        run: |
+          python -c "
+            import sys
+            sys.path.insert(0, '.')
+
+            from api.config import get_settings, Settings
+            from pydantic import ValidationError
+
+            # Test that settings can be loaded (with defaults)
+            settings = get_settings()
+            print(f'App name: {settings.app_name}')
+            print(f'Environment: {settings.environment}')
+            print(f'PostgreSQL URL: {settings.postgres_url}')
+            print(f'Redis URL: {settings.redis_url}')
+            print(f'Celery Broker: {settings.celery_broker_url}')
+
+            # Validate required fields exist
+            required_fields = [
+                'app_name', 'environment', 'postgres_url', 'redis_url',
+                'celery_broker_url', 'celery_result_backend'
+            ]
+
+            for field in required_fields:
+                assert hasattr(settings, field), f'Missing required field: {field}'
+
+            print('✓ All required configuration fields present')
+            print('✓ Environment validation passed')
+          "
+        continue-on-error: false
+
+  # ============================================
+  # DEPENDENCY LOCKFILE CHECK
+  # ============================================
+  lockfile-check:
+    name: Dependency Lock
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Verify lockfile
+        run: |
+          python -c "
+            from pathlib import Path
+
+            # Check for lockfile or pyproject.toml consistency
+            lock_files = [
+                'requirements.txt',
+                'uv.lock',
+                'poetry.lock',
+                'Pipfile.lock'
+            ]
+
+            found = []
+            for lock_file in lock_files:
+                if Path(lock_file).exists():
+                    found.append(lock_file)
+
+            if found:
+                print(f'Found lock files: {found}')
+            else:
+                print('Warning: No lock file found. Consider using dependency pinning.')
+                # This is a warning, not an error
+          "

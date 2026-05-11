@@ -1,0 +1,202 @@
+# =============================================================================
+# Pre-Commit Configuration
+# =============================================================================
+# Prevents broken code from being committed locally.
+# Runs formatting/linting before every commit to catch issues before CI.
+#
+# Install:
+#   pip install pre-commit
+#   pre-commit install
+#
+# Update hooks to latest versions:
+#   pre-commit autoupdate
+#
+# Run manually on all files:
+#   pre-commit run --all-files
+#
+# Skip hooks temporarily:
+#   git commit --no-verify -m "message"
+# =============================================================================
+
+repos:
+  # ----------------------------------------------------------------------------
+  # Black - Code formatter (Python)
+  # ----------------------------------------------------------------------------
+  - repo: https://github.com/psf/black-pre-commit-mirrors
+    rev: 24.10.0
+    hooks:
+      - id: black
+        args: ["--config=pyproject.toml"]
+        # Only run on Python files
+        types: [python]
+        # Minimum Python version supported
+        minimum_pre_commit_version: "2.0.0"
+
+  # ----------------------------------------------------------------------------
+  # Ruff - Linter with auto-fix capability
+  # ----------------------------------------------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.0
+    hooks:
+      # Run Ruff linter (checks for common issues)
+      - id: ruff
+        args: ["--config=pyproject.toml"]
+        types: [python]
+      
+      # Run Ruff formatter (auto-fixes formatting issues)
+      - id: ruff-format
+        args: ["--config=pyproject.toml"]
+        types: [python]
+
+  # ----------------------------------------------------------------------------
+  # MyPy - Static type checker
+  # ----------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.11.2
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - types-all  # Type stubs for common packages
+          - types-requests
+          - types-PyYAML
+        # Only run on Python files
+        types: [python]
+        # Ignore missing stubs for third-party packages
+        args: ["--ignore-missing-imports", "--warn-unused-ignores"]
+
+  # ----------------------------------------------------------------------------
+  # Trailing whitespace removal
+  # ----------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        # Fix trailing whitespace automatically
+        args: ["--fix"]
+        # Exclude known binary file patterns
+        exclude: '\.(png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|zip|tar|gz)$'
+
+  # ----------------------------------------------------------------------------
+  # End-of-file fixes
+  # ----------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+        # Ensure files end with newline
+        args: ["--fix"]
+        # Exclude binary files
+        exclude: '\.(png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$'
+
+  # ----------------------------------------------------------------------------
+  # YAML validation
+  # ----------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+        args: ["--unsafe", "--allow-multiple-documents"]
+        # Run on all YAML files
+        types: [yaml]
+
+  # ----------------------------------------------------------------------------
+  # JSON syntax validation
+  # ----------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-json
+        # Run on all JSON files
+        types: [json]
+
+  # ----------------------------------------------------------------------------
+  # TOML syntax validation
+  # ----------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-toml
+        # Run on TOML files
+        types: [toml]
+
+  # ----------------------------------------------------------------------------
+  # Large file detection (>500KB)
+  # ----------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+        # Prevent accidental large file commits
+
+  # ----------------------------------------------------------------------------
+  # Merge conflict marker detection
+  # ----------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-merge-conflict
+        # Flag merge conflict markers
+        args: ["--assume-in-merge"]
+
+  # ----------------------------------------------------------------------------
+  # Mixed line endings detection
+  # ----------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+        # Normalize to LF (Unix-style)
+
+# =============================================================================
+# Global Settings
+# =============================================================================
+default_language_version:
+  python: python3  # Use system Python 3
+
+default_stages:
+  - pre-commit  # Run before commit (default)
+
+# Timeout per hook (5 minutes)
+# Prevents hung hooks from blocking commits
+timeout: 300
+
+# Exclude patterns - directories that should never be scanned
+exclude: >
+  ^(
+    \.venv/                |
+    __pycache__/           |
+    \.git/                 |
+    \.github/              |
+    \.opencode/            |
+    \.mypy_cache/          |
+    \.ruff_cache/          |
+    build/                 |
+    dist/                  |
+    \.eggs/                |
+    \.pytest_cache/        |
+    node_modules/          |
+    \.tox/
+  )$
+
+# File type filters - let each repo define its own via 'types' on hooks
+# See individual hook definitions above for type-specific filtering
+
+# =============================================================================
+# Hook-specific overrides
+# =============================================================================
+fail_fast: false  # Don't stop at first failure (run all hooks for full report)
+
+# Per-hook settings
+custom hooks: []
+
+# =============================================================================
+# Development Notes
+# =============================================================================
+# 1. First run will be slow (downloading environments)
+# 2. Subsequent runs use cached environments (fast)
+# 3. Update environments: `pre-commit gc` (cleanup) and `pre-commit autoupdate`
+# 4. To bypass hooks temporarily: `git commit --no-verify`
+# 5. To run specific hook: `pre-commit run <hook-id>`
+# =============================================================================

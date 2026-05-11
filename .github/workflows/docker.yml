@@ -1,0 +1,122 @@
+name: Docker Build & Validate
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+      - dev
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  DOCKER_BUILDKIT: 1
+
+jobs:
+  validate-compose:
+    name: Validate Docker Compose
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate compose config
+        run: |
+          docker compose -f deployment/docker-compose.yml config --quiet
+
+  build-api:
+    name: Build API Image
+    runs-on: ubuntu-latest
+    needs: validate-compose
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/api
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+            type=ref,event=pr
+
+      - name: Build API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          dockerfile: deployment/Dockerfile.api
+          push: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: type=docker
+
+      - name: Image digest
+        run: |
+          echo "API image built: ${{ steps.meta.outputs.tags }}"
+          echo "Digest: ${{ steps.build.outputs.digest }}"
+
+  build-worker:
+    name: Build Worker Image
+    runs-on: ubuntu-latest
+    needs: validate-compose
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/worker
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+            type=ref,event=pr
+
+      - name: Build Worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          dockerfile: deployment/Dockerfile.worker
+          push: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: type=docker
+
+  build-summary:
+    name: Build Summary
+    runs-on: ubuntu-latest
+    needs: [build-api, build-worker]
+    if: always()
+    steps:
+      - name: Build Results
+        run: |
+          echo "## Docker Build Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Service | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| API | ${{ needs.build-api.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Worker (celery-research, celery-browser, celery-beat) | ${{ needs.build-worker.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Images tagged with: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Build-only workflow - images not pushed to registry." >> $GITHUB_STEP_SUMMARY
+
+      - name: Fail if any build failed
+        if: needs.build-api.result == 'failure' || needs.build-worker.result == 'failure'
+        run: exit 1

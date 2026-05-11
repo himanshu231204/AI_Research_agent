@@ -72,7 +72,7 @@ async def readiness() -> Dict[str, Any]:
     """Readiness probe for container orchestration."""
     services = await check_services()
 
-    ready = all(s.get("status") != "unhealthy" for s in services.values())
+    ready = all(s.status != "unhealthy" for s in services.values())
 
     return {
         "ready": ready,

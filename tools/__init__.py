@@ -1,9 +1,19 @@
-"""Tools package for Research OS.
-
-Contains research tools, MCP integrations, and utility functions.
+"""
+Tools Package - Tool implementations for the research agent
 """
 
-from typing import Any, Dict
+from .browser import BrowserTool, BrowserConfig
+from .github import GitHubTool, GitHubConfig
+from .filesystem import FilesystemTool, FilesystemConfig
+from .terminal import TerminalTool, TerminalConfig
 
-# Placeholder for tool integrations
-__all__ = []
+__all__ = [
+    "BrowserTool",
+    "BrowserConfig",
+    "GitHubTool",
+    "GitHubConfig",
+    "FilesystemTool",
+    "FilesystemConfig",
+    "TerminalTool",
+    "TerminalConfig",
+]

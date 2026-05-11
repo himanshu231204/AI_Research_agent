@@ -374,6 +374,110 @@ services:
       - '--storage.tsdb.path=/prometheus'
     restart: unless-stopped
 
+  # ============================================
+  # Phase 4: MCP Integration + Browser Automation
+  # ============================================
+
+  # Browser Sandbox (Isolated container for browser automation)
+  browser-sandbox:
+    image: browser-sandbox:latest
+    container_name: research-os-browser-sandbox
+    ports:
+      - "9222:9222"
+    environment:
+      - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+      - SANDBOX_MODE=true
+    volumes:
+      - browser_artifacts:/artifacts
+    security_opt:
+      - seccomp:unconfined
+    cap_drop:
+      - ALL
+    mem_limit: 2g
+    cpus: 1
+    restart: on-failure
+
+  # MCP Gateway (Central hub for MCP servers)
+  mcp-gateway:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.mcp
+    container_name: research-os-mcp-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MCP_TRANSPORT=http
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: python -m mcp.servers.gateway
+    restart: on-failure
+
+  # Browser MCP Server
+  browser-mcp:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.mcp
+    container_name: research-os-browser-mcp
+    ports:
+      - "8081:8080"
+    environment:
+      - MCP_SERVER_NAME=browser
+      - MCP_SERVER_PORT=8080
+    depends_on:
+      - browser-sandbox
+    command: python -m mcp.servers.browser_server
+    restart: on-failure
+
+  # GitHub MCP Server
+  github-mcp:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.mcp
+    container_name: research-os-github-mcp
+    ports:
+      - "8082:8080"
+    environment:
+      - MCP_SERVER_NAME=github
+      - MCP_SERVER_PORT=8080
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+    command: python -m mcp.servers.github_server
+    restart: on-failure
+
+  # Filesystem MCP Server
+  filesystem-mcp:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.mcp
+    container_name: research-os-filesystem-mcp
+    ports:
+      - "8083:8080"
+    environment:
+      - MCP_SERVER_NAME=filesystem
+      - MCP_SERVER_PORT=8080
+      - FILESYSTEM_BASE_PATH=/data
+    volumes:
+      - ../data:/data
+    command: python -m mcp.servers.filesystem_server
+    restart: on-failure
+
+  # Terminal MCP Server
+  terminal-mcp:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.mcp
+    container_name: research-os-terminal-mcp
+    ports:
+      - "8084:8080"
+    environment:
+      - MCP_SERVER_NAME=terminal
+      - MCP_SERVER_PORT=8080
+      - TERMINAL_ALLOWED_COMMANDS=git,ls,cat,grep,find,echo
+    command: python -m mcp.servers.terminal_server
+    restart: on-failure
+
 volumes:
   postgres_data:
   redis_data:
@@ -381,3 +485,4 @@ volumes:
   chroma_data:
   qdrant_data:
   prometheus_data:
+  browser_artifacts:

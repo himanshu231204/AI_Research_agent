@@ -15,6 +15,16 @@ ollama>=0.3.0
 # Celery & Redis
 celery>=5.4.0
 redis>=5.2.0
+kombu>=5.4.0
+
+# Flower for Celery monitoring
+flower>=2.0.0
+
+# RedBeat for Celery Beat with persistence
+redbeat>=2.2.0
+
+# Async Redis
+redis[hiredis]>=5.2.0
 
 # Database
 sqlalchemy>=2.0.0
@@ -36,6 +46,7 @@ aiohttp>=3.11.0
 structlog>=24.0.0
 opentelemetry-api>=1.24.0
 opentelemetry-sdk>=1.24.0
+prometheus-client>=0.21.0
 
 # Utilities
 python-dotenv>=1.0.0
@@ -44,3 +55,7 @@ tenacity>=9.0.0
 
 # Validation
 email-validator>=2.2.0
+
+# Text processing
+beautifulsoup4>=4.12.0
+lxml>=5.0.0

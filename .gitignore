@@ -104,8 +104,9 @@ logs/
 *.log
 
 
-#
+# coding agent files
+
+AGENT.md
 
 # Prompt files
 Prompts/
-prompts/

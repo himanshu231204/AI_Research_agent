@@ -19,13 +19,13 @@ services:
       timeout: 5s
       retries: 5
 
-  # Redis
+  # Redis Broker
   redis:
     image: redis:7-alpine
     container_name: research-os-redis
     ports:
       - "6379:6379"
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
     healthcheck:
@@ -33,6 +33,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   # Ollama (Local LLM)
   ollama:
@@ -78,6 +82,7 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - OLLAMA_BASE_URL=http://ollama:11434
       - CHROMA_PERSIST_DIR=/chroma_data
+      - DEBUG=true
     depends_on:
       postgres:
         condition: service_healthy
@@ -88,9 +93,47 @@ services:
     volumes:
       - ../chroma_data:/chroma_data
     command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-  # Celery Worker (Research Pool)
-  celery-research:
+  # Celery Worker - High Priority Queue
+  celery-worker-high-priority:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.worker
+    container_name: research-os-celery-high-priority
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=research_os
+      - POSTGRES_PASSWORD=research_os_dev
+      - POSTGRES_DB=research_os
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - WORKER_NAME=high-priority-worker-1
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    command: celery -A workers.celery_app worker -Q high_priority -l info --concurrency=2 --hostname=high-priority@%h
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "celery", "-A", "workers.celery_app", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Celery Worker - Research Queue
+  celery-worker-research:
     build:
       context: ..
       dockerfile: deployment/Dockerfile.worker
@@ -106,14 +149,24 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - OLLAMA_BASE_URL=http://ollama:11434
+      - WORKER_NAME=research-worker-1
     depends_on:
-      - redis
-      - postgres
-      - ollama
-    command: celery -A workers.celery_app worker -Q research -l info --concurrency=2
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    command: celery -A workers.celery_app worker -Q research -l info --concurrency=4 --hostname=research@%h
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "celery", "-A", "workers.celery_app", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-  # Celery Worker (Browser Pool)
-  celery-browser:
+  # Celery Worker - Browser Queue
+  celery-worker-browser:
     build:
       context: ..
       dockerfile: deployment/Dockerfile.worker
@@ -129,11 +182,114 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - OLLAMA_BASE_URL=http://ollama:11434
+      - WORKER_NAME=browser-worker-1
     depends_on:
-      - redis
-      - postgres
-      - ollama
-    command: celery -A workers.celery_app worker -Q browser -l info --concurrency=1
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    command: celery -A workers.celery_app worker -Q browser -l info --concurrency=1 --hostname=browser@%h
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "celery", "-A", "workers.celery_app", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Celery Worker - RAG Queue
+  celery-worker-rag:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.worker
+    container_name: research-os-celery-rag
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=research_os
+      - POSTGRES_PASSWORD=research_os_dev
+      - POSTGRES_DB=research_os
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - WORKER_NAME=rag-worker-1
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      chromadb:
+        condition: service_started
+      ollama:
+        condition: service_started
+    command: celery -A workers.celery_app worker -Q rag -l info --concurrency=2 --hostname=rag@%h
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "celery", "-A", "workers.celery_app", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Celery Worker - Reflection Queue
+  celery-worker-reflection:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.worker
+    container_name: research-os-celery-reflection
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=research_os
+      - POSTGRES_PASSWORD=research_os_dev
+      - POSTGRES_DB=research_os
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - WORKER_NAME=reflection-worker-1
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    command: celery -A workers.celery_app worker -Q reflection -l info --concurrency=2 --hostname=reflection@%h
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "celery", "-A", "workers.celery_app", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Celery Worker - Dead Letter Queue Handler
+  celery-worker-dead-letter:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.worker
+    container_name: research-os-celery-dead-letter
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=research_os
+      - POSTGRES_PASSWORD=research_os_dev
+      - POSTGRES_DB=research_os
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - WORKER_NAME=dead-letter-worker-1
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    command: celery -A workers.celery_app worker -Q dead_letter -l info --concurrency=1 --hostname=dead-letter@%h
+    restart: on-failure
 
   # Celery Beat (Scheduler)
   celery-beat:
@@ -145,8 +301,27 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
     depends_on:
-      - redis
-    command: celery -A workers.celery_app beat -l info
+      redis:
+        condition: service_healthy
+    command: celery -A workers.celery_app beat -l info --scheduler redbeat.RedBeatScheduler
+    restart: on-failure
+
+  # Flower - Celery Monitoring Dashboard
+  flower:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.worker
+    container_name: research-os-flower
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A workers.celery_app flower --port=5555
+    restart: on-failure
 
 volumes:
   postgres_data:

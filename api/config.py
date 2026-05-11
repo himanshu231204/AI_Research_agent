@@ -23,7 +23,7 @@ class Settings(BaseSettings):
 
     # Application
     app_name: str = Field(default="Research OS", alias="APP_NAME")
-    app_version: str = Field(default="0.1.0", alias="APP_VERSION")
+    app_version: str = Field(default="0.3.0", alias="APP_VERSION")
     environment: str = Field(default="development", alias="ENVIRONMENT")
     debug: bool = Field(default=True, alias="DEBUG")
 
@@ -73,8 +73,34 @@ class Settings(BaseSettings):
     ollama_model: str = Field(default="qwen3", alias="OLLAMA_MODEL")
     ollama_timeout: int = Field(default=120, alias="OLLAMA_TIMEOUT")
 
-    # ChromaDB
+    # Vector Store (Phase 3 - RAG Infrastructure)
+    vector_store_provider: str = Field(default="chroma", alias="VECTOR_STORE_PROVIDER")
     chroma_persist_dir: str = Field(default="./chroma_data", alias="CHROMA_PERSIST_DIR")
+
+    # Qdrant (production vector store)
+    qdrant_url: Optional[str] = Field(default=None, alias="QDRANT_URL")
+    qdrant_port: int = Field(default=6333, alias="QDRANT_PORT")
+    qdrant_vector_size: int = Field(default=768, alias="QDRANT_VECTOR_SIZE")
+
+    # Embedding Model
+    embedding_model: str = Field(default="nomic-embed-text", alias="EMBEDDING_MODEL")
+    embedding_batch_size: int = Field(default=32, alias="EMBEDDING_BATCH_SIZE")
+
+    # Memory Settings
+    max_episodic_entries: int = Field(default=1000, alias="MAX_EPISODIC_ENTRIES")
+    max_semantic_entries: int = Field(default=10000, alias="MAX_SEMANTIC_ENTRIES")
+    compression_threshold: int = Field(default=50, alias="COMPRESSION_THRESHOLD")
+    session_ttl: int = Field(default=604800, alias="SESSION_TTL")  # 7 days
+
+    # RAG Settings
+    rag_chunk_size: int = Field(default=1000, alias="RAG_CHUNK_SIZE")
+    rag_chunk_overlap: int = Field(default=200, alias="RAG_CHUNK_OVERLAP")
+    rag_top_k: int = Field(default=5, alias="RAG_TOP_K")
+
+    # Reflection Settings
+    max_reflections: int = Field(default=3, alias="MAX_REFLECTIONS")
+    hallucination_threshold: float = Field(default=0.4, alias="HALLUCINATION_THRESHOLD")
+    confidence_threshold: float = Field(default=0.5, alias="CONFIDENCE_THRESHOLD")
 
     # LangSmith
     langsmith_tracing: bool = Field(default=False, alias="LANGSMITH_TRACING")
@@ -97,6 +123,11 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         """Check if running in production."""
         return self.environment.lower() == "production"
+
+    @property
+    def is_testing(self) -> bool:
+        """Check if running in test mode."""
+        return self.environment.lower() == "test"
 
 
 @lru_cache

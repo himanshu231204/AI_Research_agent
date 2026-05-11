@@ -1,0 +1,307 @@
+You are the lead architect and senior engineer for this project.
+
+Your job is to build the system EXACTLY according to the specifications defined in `AGENT.md`.
+
+You MUST treat `AGENT.md` as the single source of truth for:
+
+* architecture
+* workflows
+* folder structure
+* orchestration logic
+* infrastructure
+* scaling strategy
+* security constraints
+* state schema
+* deployment strategy
+
+Do NOT invent alternative architectures unless explicitly instructed.
+
+---
+
+# PROJECT GOAL
+
+Build a production-grade Autonomous AI Research Operating System using:
+
+* LangGraph
+* FastAPI
+* Celery
+* Redis
+* PostgreSQL
+* Ollama
+* ChromaDB
+* Docker
+* MCP servers
+* Playwright
+* React/Next.js frontend
+
+The system must support:
+
+* multi-agent orchestration
+* durable execution
+* distributed workers
+* reflection loops
+* memory systems
+* browser automation
+* streaming
+* cloud LLM fallback
+* observability
+* fault tolerance
+
+---
+
+# MOST IMPORTANT REQUIREMENTS
+
+You MUST follow these architectural rules:
+
+1. LangGraph is the orchestration core
+2. Celery + Redis are REQUIRED for distributed execution
+3. Do NOT rely only on asyncio
+4. Browser automation MUST run in isolated containers
+5. Reflection loops MUST enforce max_reflections
+6. All agents must use the shared ResearchState schema
+7. Build production-ready code only
+8. Use async everywhere appropriate
+9. Code must be modular and scalable
+10. Every phase must be runnable before moving ahead
+
+---
+
+# DEVELOPMENT STRATEGY
+
+Build the project PHASE BY PHASE.
+
+DO NOT build everything at once.
+
+At the end of each phase:
+
+* ensure the code runs
+* ensure imports work
+* ensure Docker builds
+* ensure the graph executes
+* ensure no placeholder pseudo-code remains
+
+---
+
+# CURRENT TASK
+
+Start with PHASE 1 ONLY.
+
+---
+
+# PHASE 1 GOALS
+
+Build the foundational orchestration system.
+
+Implement:
+
+## 1. Project Structure
+
+Create the complete production folder structure from AGENT.md.
+
+---
+
+## 2. Python Environment
+
+Setup:
+
+* pyproject.toml
+* requirements
+* environment config
+* linting
+* formatting
+* typing
+
+Use:
+
+* uv
+  or
+* poetry
+
+---
+
+## 3. Core FastAPI Backend
+
+Build:
+
+* FastAPI app
+* health endpoint
+* websocket support
+* API versioning
+* config system
+* environment loading
+
+---
+
+## 4. LangGraph Foundation
+
+Implement:
+
+* ResearchState schema
+* graph builder
+* node registration
+* conditional routing
+* reflection guardrails
+* graph visualization
+
+---
+
+## 5. Initial Agents
+
+Create minimal working versions of:
+
+* Planner Agent
+* Router Agent
+* Reflection Agent
+* Writer Agent
+
+Each agent must:
+
+* be modular
+* use typed interfaces
+* support async execution
+* return structured outputs
+
+---
+
+## 6. Basic Ollama Integration
+
+Implement:
+
+* Ollama client wrapper
+* model routing layer
+* timeout handling
+* fallback-ready architecture
+
+DO NOT implement cloud fallback yet.
+Only prepare architecture for it.
+
+---
+
+## 7. Redis + Celery Foundation
+
+Setup:
+
+* Redis broker
+* Celery app
+* worker configuration
+* queue definitions
+* retry configuration
+
+Implement:
+
+* one demo distributed task
+
+---
+
+## 8. Docker Infrastructure
+
+Create:
+
+* docker-compose.yml
+* Dockerfiles
+* backend container
+* redis container
+* postgres container
+* ollama container
+
+All services must boot successfully.
+
+---
+
+## 9. Observability Foundation
+
+Setup:
+
+* structured logging
+* request tracing
+* LangSmith hooks
+* metrics scaffolding
+
+---
+
+## 10. Developer Experience
+
+Setup:
+
+* Makefile
+* startup scripts
+* .env.example
+* README.md
+* dev commands
+
+---
+
+# IMPORTANT IMPLEMENTATION RULES
+
+## LangGraph Rules
+
+* Use StateGraph
+* Use async nodes
+* Use conditional edges
+* Implement reflection_count protection
+* Use TypedDict state schema
+
+---
+
+## Celery Rules
+
+* task_acks_late=True
+* retries enabled
+* queues separated by responsibility
+* Redis as broker/backend
+
+---
+
+## Code Quality Rules
+
+* strong typing everywhere
+* avoid global state
+* modular architecture
+* no hardcoded secrets
+* production-grade logging
+
+---
+
+# OUTPUT FORMAT
+
+For every implementation step:
+
+1. Explain what is being built
+2. Explain WHY it exists architecturally
+3. Generate production-grade code
+4. Show file paths
+5. Keep files modular
+6. Ensure imports are correct
+
+---
+
+# AFTER PHASE 1
+
+When Phase 1 is complete:
+
+1. verify all services boot
+2. verify graph execution works
+3. verify Redis connection works
+4. verify Celery worker works
+5. verify Ollama integration works
+6. provide startup commands
+7. provide architecture summary
+
+Then STOP.
+
+Do NOT continue to Phase 2 automatically.
+
+Wait for further instructions.
+
+---
+
+# CRITICAL CONSTRAINT
+
+Never simplify the architecture into:
+
+* single-file agents
+* synchronous workflows
+* notebook-style structure
+* toy/demo architecture
+
+This must be built as a real production-grade distributed AI operating system.

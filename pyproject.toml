@@ -1,0 +1,119 @@
+[project]
+name = "research-os"
+version = "0.1.0"
+description = "Autonomous AI Research Operating System"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "Research OS Team", email = "team@research-os.dev" }
+]
+
+dependencies = [
+    # FastAPI & Server
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.6.0",
+
+    # LangGraph & LangChain
+    "langgraph>=0.2.0",
+    "langchain-core>=0.3.0",
+    "langchain-community>=0.3.0",
+
+    # Ollama
+    "ollama>=0.3.0",
+
+    # Celery & Redis
+    "celery>=5.4.0",
+    "redis>=5.2.0",
+
+    # Database
+    "sqlalchemy>=2.0.0",
+    "asyncpg>=0.30.0",
+    "psycopg2-binary>=2.9.0",
+    "alembic>=1.14.0",
+
+    # Vector Database
+    "chromadb>=0.5.0",
+
+    # Browser Automation
+    "playwright>=1.48.0",
+
+    # HTTP & Networking
+    "httpx>=0.27.0",
+    "aiohttp>=3.11.0",
+
+    # Observability
+    "structlog>=24.0.0",
+    "opentelemetry-api>=1.24.0",
+    "opentelemetry-sdk>=1.24.0",
+    "opentelemetry-instrumentation-fastapi>=0.45b0",
+    "opentelemetry-instrumentation-langchain>=0.45b0",
+
+    # Utilities
+    "python-dotenv>=1.0.0",
+    "python-multipart>=0.0.12",
+    "tenacity>=9.0.0",
+    "pydantic[email]>=2.9.0",
+
+    # Validation
+    "email-validator>=2.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.8.0",
+    "mypy>=1.14.0",
+    "pre-commit>=4.1.0",
+    "black>=24.10.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.8.0",
+    "mypy>=1.14.0",
+    "black>=24.10.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

@@ -1,0 +1,155 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: research-os-postgres
+    environment:
+      POSTGRES_USER: research_os
+      POSTGRES_PASSWORD: research_os_dev
+      POSTGRES_DB: research_os
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U research_os"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: research-os-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Ollama (Local LLM)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: research-os-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      OLLAMA_HOST: 0.0.0.0
+
+  # ChromaDB (Vector Database)
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: research-os-chroma
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+
+  # FastAPI Backend
+  api:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.api
+    container_name: research-os-api
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=research_os
+      - POSTGRES_PASSWORD=research_os_dev
+      - POSTGRES_DB=research_os
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - CHROMA_PERSIST_DIR=/chroma_data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    volumes:
+      - ../chroma_data:/chroma_data
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Celery Worker (Research Pool)
+  celery-research:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.worker
+    container_name: research-os-celery-research
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=research_os
+      - POSTGRES_PASSWORD=research_os_dev
+      - POSTGRES_DB=research_os
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - OLLAMA_BASE_URL=http://ollama:11434
+    depends_on:
+      - redis
+      - postgres
+      - ollama
+    command: celery -A workers.celery_app worker -Q research -l info --concurrency=2
+
+  # Celery Worker (Browser Pool)
+  celery-browser:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.worker
+    container_name: research-os-celery-browser
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=research_os
+      - POSTGRES_PASSWORD=research_os_dev
+      - POSTGRES_DB=research_os
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - OLLAMA_BASE_URL=http://ollama:11434
+    depends_on:
+      - redis
+      - postgres
+      - ollama
+    command: celery -A workers.celery_app worker -Q browser -l info --concurrency=1
+
+  # Celery Beat (Scheduler)
+  celery-beat:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.worker
+    container_name: research-os-celery-beat
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+    command: celery -A workers.celery_app beat -l info
+
+volumes:
+  postgres_data:
+  redis_data:
+  ollama_data:
+  chroma_data:

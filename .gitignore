@@ -102,3 +102,10 @@ celerybeat-schedule
 # Logs
 logs/
 *.log
+
+
+#
+
+# Prompt files
+Prompts/
+prompts/

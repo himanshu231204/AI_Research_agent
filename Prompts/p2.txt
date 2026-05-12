@@ -1,0 +1,496 @@
+You are continuing development of the AI Research Agent.
+
+IMPORTANT:
+
+1. Read `AGENT.md` completely before writing ANY code.
+2. Treat `AGENT.md` as the architecture source of truth.
+3. Do NOT change architectural decisions unless explicitly instructed.
+4. Maintain compatibility with ALL Phase 1 code.
+5. Do NOT rewrite existing working systems unnecessarily.
+
+---
+
+# CURRENT OBJECTIVE
+
+Implement PHASE 2:
+
+# Distributed Execution + Parallel Research Infrastructure
+
+The goal of this phase is to transform the system from:
+
+```text id="1d1c9y"
+single-process orchestration
+```
+
+into:
+
+```text id="9m6n93"
+distributed autonomous execution platform
+```
+
+using:
+
+* Celery
+* Redis
+* async workers
+* distributed queues
+* parallel execution
+* resilient task handling
+
+---
+
+# PHASE 2 GOALS
+
+Implement the complete distributed research execution layer.
+
+This phase MUST introduce:
+
+* distributed task orchestration
+* parallel agent execution
+* resilient worker pools
+* task persistence
+* queue routing
+* retries
+* dead-letter handling
+* async research pipelines
+
+---
+
+# REQUIRED IMPLEMENTATIONS
+
+---
+
+# 1. Distributed Worker Architecture
+
+Implement dedicated Celery worker pools.
+
+Create separate queues for:
+
+```text id="xjlwm0"
+high_priority
+research
+browser
+rag
+reflection
+dead_letter
+```
+
+Each queue must:
+
+* have dedicated routing
+* support retries
+* support visibility timeouts
+* support durable execution
+
+---
+
+# 2. Celery Task Routing System
+
+Implement:
+
+* automatic task routing
+* queue-based dispatch
+* retry policies
+* priority support
+
+Create:
+
+```python id="8u8wdw"
+workers/
+├── celery_app.py
+├── routing.py
+├── queues.py
+├── tasks/
+│   ├── web_tasks.py
+│   ├── github_tasks.py
+│   ├── rag_tasks.py
+│   ├── reflection_tasks.py
+│   └── browser_tasks.py
+```
+
+---
+
+# 3. Parallel LangGraph Execution
+
+Upgrade LangGraph orchestration to support:
+
+* concurrent research execution
+* async task dispatch
+* distributed task aggregation
+
+Implement:
+
+```text id="k7h95y"
+Planner
+   ↓
+Task Router
+   ↓
+Dispatch Parallel Celery Tasks
+   ↓
+Wait For Completion
+   ↓
+Aggregate Results
+```
+
+---
+
+# 4. Aggregator Node
+
+Create a production-grade Aggregator Node.
+
+Responsibilities:
+
+* merge findings
+* deduplicate sources
+* track failed tasks
+* collect metadata
+* combine outputs from workers
+
+The Aggregator MUST:
+
+* tolerate partial failures
+* continue if some workers fail
+* append failed task info into state
+
+---
+
+# 5. Updated ResearchState Enforcement
+
+Ensure ALL agents and tasks use the upgraded schema from AGENT.md.
+
+Must include:
+
+```python id="zjbg7m"
+failed_tasks
+reflection_count
+max_reflections
+error_state
+token_usage
+```
+
+Strict validation required.
+
+---
+
+# 6. Retry + Failure Handling
+
+Implement production retry logic.
+
+Requirements:
+
+## Retries
+
+* exponential backoff
+* configurable retry limits
+* retry metadata tracking
+
+## Failure Handling
+
+* dead-letter queue
+* task timeout handling
+* graceful degradation
+* partial workflow continuation
+
+---
+
+# 7. Reflection Loop Safety
+
+Implement hard reflection enforcement.
+
+Requirements:
+
+```python id="1gq1n8"
+if reflection_count >= max_reflections:
+    stop reflection loop
+```
+
+This logic MUST exist:
+
+* in graph routing
+* in reflection tasks
+* in orchestration safeguards
+
+Infinite loops must be impossible.
+
+---
+
+# 8. Async Research Pipelines
+
+Implement true concurrent research execution.
+
+Examples:
+
+* multiple web searches simultaneously
+* parallel GitHub analysis
+* concurrent PDF chunking
+* parallel embedding generation
+
+Use:
+
+* asyncio
+* gather()
+* async HTTP clients
+
+Do NOT block the event loop.
+
+---
+
+# 9. Redis Reliability Layer
+
+Improve Redis integration.
+
+Implement:
+
+* connection pooling
+* health checks
+* reconnect logic
+* retry resilience
+
+Add:
+
+* Redis monitoring hooks
+* queue inspection utilities
+
+---
+
+# 10. Worker Health Monitoring
+
+Implement worker monitoring infrastructure.
+
+Track:
+
+* active tasks
+* queue sizes
+* task latency
+* failures
+* retries
+* worker heartbeat
+
+Expose metrics through:
+
+* Prometheus
+* structured logs
+
+---
+
+# 11. Token Usage Tracking
+
+Implement token accounting system.
+
+Track:
+
+* tokens per agent
+* tokens per workflow
+* model usage
+* estimated costs
+
+Store in:
+
+```python id="26nkx3"
+state["token_usage"]
+```
+
+Must aggregate across distributed workers.
+
+---
+
+# 12. Distributed Logging Architecture
+
+Implement centralized structured logging.
+
+Requirements:
+
+* JSON logging
+* request correlation IDs
+* workflow IDs
+* task tracing
+* Celery task tracing
+
+Every log must contain:
+
+* session_id
+* task_id
+* worker_name
+* current_agent
+
+---
+
+# 13. Integration Tests
+
+Add integration tests for:
+
+## Celery
+
+* worker startup
+* queue routing
+* retries
+
+## LangGraph
+
+* parallel execution
+* aggregation
+* reflection stopping
+
+## Redis
+
+* connectivity
+* reconnect handling
+
+## Aggregator
+
+* partial failures
+* merge correctness
+
+---
+
+# 14. Docker Infrastructure Upgrades
+
+Update docker-compose with:
+
+```yaml id="vgguxf"
+services:
+  api:
+  redis:
+  postgres:
+  celery-worker-research:
+  celery-worker-browser:
+  celery-worker-rag:
+  celery-beat:
+```
+
+Each worker should:
+
+* have isolated startup commands
+* proper health checks
+* restart policies
+
+---
+
+# 15. Queue Observability
+
+Implement:
+
+* Flower dashboard
+* queue inspection
+* retry visualization
+* task monitoring
+
+Add admin endpoints for:
+
+* queue health
+* active workers
+* failed tasks
+
+---
+
+# 16. Performance Requirements
+
+The system MUST support:
+
+* concurrent workflows
+* parallel task execution
+* partial workflow recovery
+* horizontal worker scaling
+
+Architecture must remain:
+
+* modular
+* scalable
+* production-ready
+
+---
+
+# REQUIRED IMPLEMENTATION RULES
+
+---
+
+## LangGraph Rules
+
+* use async StateGraph nodes
+* conditional routing required
+* reflection safety mandatory
+* no synchronous blocking
+
+---
+
+## Celery Rules
+
+MUST configure:
+
+```python id="n9jyl1"
+task_acks_late = True
+worker_prefetch_multiplier = 1
+task_track_started = True
+broker_connection_retry_on_startup = True
+```
+
+---
+
+## Failure Rules
+
+The system MUST:
+
+* survive worker crashes
+* tolerate partial failures
+* continue execution when possible
+
+---
+
+## Architecture Rules
+
+Do NOT:
+
+* collapse queues into one worker
+* remove distributed execution
+* simplify orchestration
+* convert back to asyncio-only architecture
+
+---
+
+# OUTPUT FORMAT
+
+For EVERY implementation:
+
+1. Explain what is being built
+2. Explain WHY it exists architecturally
+3. Generate production-grade code
+4. Use correct file paths
+5. Ensure imports work
+6. Ensure Docker compatibility
+7. Ensure test compatibility
+
+---
+
+# VALIDATION REQUIREMENTS
+
+Before finishing:
+
+Verify:
+
+* Celery workers boot
+* queues register correctly
+* LangGraph parallel execution works
+* aggregation works
+* retries work
+* dead-letter queue works
+* reflection loop stops correctly
+* Docker services boot
+* integration tests pass
+
+---
+
+# FINAL DELIVERABLE
+
+At the end of Phase 2:
+
+The platform should support:
+
+```text id="9bch5l"
+multiple distributed autonomous research workflows
+running concurrently across worker pools
+with durable execution and fault tolerance
+```
+
+Then STOP.
+
+Do NOT continue to Phase 3 automatically.

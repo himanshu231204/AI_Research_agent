@@ -1,0 +1,384 @@
+"""
+API routes for model management and telemetry.
+
+Endpoints:
+- GET /models/status - Get model status
+- GET /models/providers - Get provider information
+- POST /models/test - Test a model
+- GET /telemetry/models - Get model telemetry
+- GET /telemetry/costs - Get cost telemetry
+"""
+
+import logging
+from typing import Optional, List, Dict, Any
+from datetime import datetime
+
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
+
+from models.providers.base import ProviderStatus
+from models.providers.local import OllamaProvider, get_ollama_provider
+from models.providers.cloud import OpenAIProvider, AnthropicProvider, GoogleProvider
+from models.routing.router import get_model_router, ModelRouter, TaskType
+from models.routing.gpu_scheduler import get_gpu_monitor, get_health_monitor
+from models.routing.telemetry import get_telemetry_collector
+from models.routing.cost_optimizer import get_cost_optimizer, CostBudget
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/models", tags=["Models"])
+
+
+# Request/Response models
+
+
+class ModelTestRequest(BaseModel):
+    """Request to test a model."""
+
+    provider: str
+    model: str
+    prompt: str = "Hello, world!"
+    temperature: float = 0.7
+
+
+class ModelTestResponse(BaseModel):
+    """Response from model test."""
+
+    success: bool
+    provider: str
+    model: str
+    latency_ms: float
+    content: str
+    error: Optional[str] = None
+
+
+class ProviderInfo(BaseModel):
+    """Provider information."""
+
+    name: str
+    type: str
+    status: str
+    available: bool
+    models: List[str]
+    latency_ms: float = 0.0
+    circuit_breaker: Optional[Dict[str, Any]] = None
+
+
+class ModelStatusResponse(BaseModel):
+    """Model status response."""
+
+    timestamp: str
+    providers: List[ProviderInfo]
+    gpu_status: Dict[str, Any]
+    model_health: Dict[str, Any]
+
+
+class TelemetryResponse(BaseModel):
+    """Telemetry response."""
+
+    summary: Dict[str, Any]
+    providers: Dict[str, Any]
+    task_types: Dict[str, Any]
+
+
+class CostResponse(BaseModel):
+    """Cost response."""
+
+    session_id: str
+    total_cost_usd: float
+    total_tokens: int
+    by_provider: Dict[str, float]
+    by_model: Dict[str, float]
+
+
+# Endpoints
+
+
+@router.get("/status", response_model=ModelStatusResponse)
+async def get_model_status():
+    """
+    Get status of all models and providers.
+
+    Returns:
+        Model status with provider info, GPU status, and health
+    """
+    router = get_model_router()
+    gpu_monitor = get_gpu_monitor()
+    health_monitor = get_health_monitor()
+
+    providers = []
+
+    # Get Ollama status
+    try:
+        ollama = get_ollama_provider()
+        ollama_health = await ollama.health_check()
+        available_models = await ollama.get_available_models()
+
+        providers.append(
+            ProviderInfo(
+                name="ollama",
+                type="local",
+                status="healthy" if ollama_health else "unhealthy",
+                available=ollama_health,
+                models=available_models,
+                latency_ms=ollama.health.latency_ms,
+            )
+        )
+    except Exception as e:
+        logger.warning(f"Failed to get Ollama status: {e}")
+        providers.append(
+            ProviderInfo(
+                name="ollama",
+                type="local",
+                status="unavailable",
+                available=False,
+                models=[],
+            )
+        )
+
+    # Get registered cloud providers
+    for name, provider in router.get_all_providers().items():
+        if name != "ollama":
+            providers.append(
+                ProviderInfo(
+                    name=name,
+                    type=provider.provider_type.value,
+                    status=provider.health.status.value,
+                    available=provider.is_available(),
+                    models=provider.config.supported_models,
+                    latency_ms=provider.health.latency_ms,
+                )
+            )
+
+    # Get GPU status
+    try:
+        gpu_metrics = await gpu_monitor.get_current_metrics()
+        gpu_status = {
+            "available": gpu_metrics.gpu_available,
+            "memory_percent": gpu_metrics.memory_percent,
+            "is_saturated": gpu_metrics.is_saturated,
+            "active_models": gpu_metrics.active_models,
+        }
+    except Exception as e:
+        logger.warning(f"Failed to get GPU status: {e}")
+        gpu_status = {"available": False, "error": str(e)}
+
+    # Get model health
+    model_health = {}
+    for key, health in health_monitor.get_all_health().items():
+        model_health[key] = {
+            "available": health.available,
+            "success_rate": health.success_rate,
+            "latency_ms": health.latency_ms,
+            "error_count": health.error_count,
+        }
+
+    return ModelStatusResponse(
+        timestamp=datetime.utcnow().isoformat(),
+        providers=providers,
+        gpu_status=gpu_status,
+        model_health=model_health,
+    )
+
+
+@router.get("/providers", response_model=List[ProviderInfo])
+async def get_providers():
+    """
+    Get information about all providers.
+
+    Returns:
+        List of provider information
+    """
+    router = get_model_router()
+    providers = []
+
+    # Ollama
+    try:
+        ollama = get_ollama_provider()
+        available_models = await ollama.get_available_models()
+
+        providers.append(
+            ProviderInfo(
+                name="ollama",
+                type="local",
+                status=ollama.health.status.value,
+                available=ollama.is_available(),
+                models=available_models,
+                latency_ms=ollama.health.latency_ms,
+            )
+        )
+    except Exception as e:
+        logger.warning(f"Failed to get Ollama: {e}")
+
+    # Cloud providers
+    for name, provider in router.get_all_providers().items():
+        if name != "ollama":
+            providers.append(
+                ProviderInfo(
+                    name=name,
+                    type=provider.provider_type.value,
+                    status=provider.health.status.value,
+                    available=provider.is_available(),
+                    models=provider.config.supported_models,
+                    latency_ms=provider.health.latency_ms,
+                    circuit_breaker=router.get_circuit_breaker_status().get(name),
+                )
+            )
+
+    return providers
+
+
+@router.post("/test", response_model=ModelTestResponse)
+async def test_model(request: ModelTestRequest):
+    """
+    Test a specific model.
+
+    Args:
+        request: Model test request
+
+    Returns:
+        Test result
+    """
+    router = get_model_router()
+
+    try:
+        # Get provider
+        provider = router.get_provider(request.provider)
+        if not provider:
+            raise HTTPException(status_code=404, detail=f"Provider {request.provider} not found")
+
+        # Test the model
+        response = await provider.generate(
+            prompt=request.prompt,
+            temperature=request.temperature,
+        )
+
+        return ModelTestResponse(
+            success=True,
+            provider=request.provider,
+            model=request.model,
+            latency_ms=response.latency_ms,
+            content=response.content[:500],  # Limit response length
+        )
+
+    except Exception as e:
+        logger.error(f"Model test failed: {e}")
+        return ModelTestResponse(
+            success=False,
+            provider=request.provider,
+            model=request.model,
+            latency_ms=0,
+            content="",
+            error=str(e),
+        )
+
+
+@router.post("/circuit-breaker/reset/{provider}")
+async def reset_circuit_breaker(provider: str):
+    """
+    Reset circuit breaker for a provider.
+
+    Args:
+        provider: Provider name
+
+    Returns:
+        Success message
+    """
+    router = get_model_router()
+    router.reset_circuit_breaker(provider)
+
+    return {"message": f"Circuit breaker reset for {provider}"}
+
+
+# Telemetry endpoints
+
+
+@router.get("/telemetry", response_model=TelemetryResponse)
+async def get_telemetry():
+    """
+    Get model telemetry.
+
+    Returns:
+        Telemetry summary
+    """
+    collector = get_telemetry_collector()
+
+    return TelemetryResponse(
+        summary=collector.get_summary(),
+        providers=collector.get_all_provider_metrics(),
+        task_types=collector.get_all_task_type_metrics(),
+    )
+
+
+@router.get("/telemetry/costs", response_model=CostResponse)
+async def get_cost_telemetry(session_id: str = "default"):
+    """
+    Get cost telemetry for a session.
+
+    Args:
+        session_id: Session ID
+
+    Returns:
+        Cost telemetry
+    """
+    optimizer = get_cost_optimizer(session_id)
+    summary = optimizer.get_session_summary()
+
+    return CostResponse(
+        session_id=session_id,
+        total_cost_usd=summary["total_cost_usd"],
+        total_tokens=summary["total_tokens"],
+        by_provider=summary.get("by_model", {}),  # Using by_model as proxy
+        by_model=summary.get("by_model", {}),
+    )
+
+
+@router.get("/routing/stats")
+async def get_routing_stats():
+    """
+    Get routing statistics.
+
+    Returns:
+        Routing stats
+    """
+    router = get_model_router()
+
+    return {
+        "routing_stats": router.get_routing_stats(),
+        "circuit_breakers": router.get_circuit_breaker_status(),
+    }
+
+
+# Health check endpoint
+
+
+@router.get("/health")
+async def models_health():
+    """
+    Quick health check for models.
+
+    Returns:
+        Health status
+    """
+    results = {}
+
+    # Check Ollama
+    try:
+        ollama = get_ollama_provider()
+        results["ollama"] = await ollama.health_check()
+    except Exception as e:
+        results["ollama"] = False
+
+    # Check router providers
+    router = get_model_router()
+    for name, provider in router.get_all_providers().items():
+        if name != "ollama":
+            try:
+                results[name] = await provider.health_check()
+            except Exception:
+                results[name] = False
+
+    return {
+        "healthy": all(results.values()) if results else False,
+        "providers": results,
+    }

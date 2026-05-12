@@ -105,6 +105,7 @@ logs/
 
 
 # coding agent files
+.temp/
 
 AGENT.md
 

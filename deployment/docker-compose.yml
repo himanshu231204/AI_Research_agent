@@ -478,6 +478,124 @@ services:
     command: python -m mcp.servers.terminal_server
     restart: on-failure
 
+  # ============================================
+  # Phase 5: Model Routing + Multi-Model Intelligence
+  # ============================================
+
+  # Model Router (Central routing layer)
+  model-router:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.api
+    container_name: research-os-model-router
+    ports:
+      - "8001:8000"
+    environment:
+      - ENVIRONMENT=development
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=qwen3
+      - PREFER_LOCAL_MODELS=true
+      - ENABLE_CLOUD_FALLBACK=true
+      - GPU_MEMORY_THRESHOLD=0.9
+      - MAX_COST_PER_REQUEST=1.0
+      - MAX_COST_PER_SESSION=10.0
+    depends_on:
+      ollama:
+        condition: service_started
+    command: uvicorn models.routing.router:app --host 0.0.0.0 --port 8000
+    restart: on-failure
+
+  # Celery Worker - Local Inference Queue
+  celery-worker-local-inference:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.worker
+    container_name: research-os-celery-local-inference
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - WORKER_NAME=local-inference-worker-1
+      - PREFER_LOCAL_MODELS=true
+    depends_on:
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    command: celery -A workers.celery_app worker -Q local_inference -l info --concurrency=2 --hostname=local-inference@%h
+    restart: on-failure
+
+  # Celery Worker - Cloud Inference Queue
+  celery-worker-cloud-inference:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.worker
+    container_name: research-os-celery-cloud-inference
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - WORKER_NAME=cloud-inference-worker-1
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A workers.celery_app worker -Q cloud_inference -l info --concurrency=2 --hostname=cloud-inference@%h
+    restart: on-failure
+
+  # Celery Worker - Embeddings Queue
+  celery-worker-embeddings:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.worker
+    container_name: research-os-celery-embeddings
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - WORKER_NAME=embeddings-worker-1
+      - EMBEDDING_MODEL=nomic-embed-text
+    depends_on:
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    command: celery -A workers.celery_app worker -Q embeddings -l info --concurrency=2 --hostname=embeddings@%h
+    restart: on-failure
+
+  # Telemetry Worker (Metrics collection)
+  telemetry-worker:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.worker
+    container_name: research-os-telemetry-worker
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - WORKER_NAME=telemetry-worker-1
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A workers.celery_app worker -Q telemetry -l info --concurrency=1 --hostname=telemetry@%h
+    restart: on-failure
+
+  # Grafana Dashboard
+  grafana:
+    image: grafana/grafana:latest
+    container_name: research-os-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+    restart: on-failure
+
 volumes:
   postgres_data:
   redis_data:
@@ -486,3 +604,4 @@ volumes:
   qdrant_data:
   prometheus_data:
   browser_artifacts:
+  grafana_data:

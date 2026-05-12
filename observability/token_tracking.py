@@ -78,7 +78,9 @@ class ModelPricing:
     prompt_cost_per_million: float = 0.0
     completion_cost_per_million: float = 0.0
 
-    def calculate_cost(self, prompt_tokens: int, completion_tokens: int) -> tuple[float, float, float]:
+    def calculate_cost(
+        self, prompt_tokens: int, completion_tokens: int
+    ) -> tuple[float, float, float]:
         """
         Calculate cost for given token counts.
 
@@ -374,13 +376,10 @@ class TokenTracker:
         model_pricing = provider_pricing.get(model)
 
         if model_pricing:
-            cost = (
-                (token_count / 1_000_000)
-                * (
-                    model_pricing.completion_cost_per_million
-                    if is_completion
-                    else model_pricing.prompt_cost_per_million
-                )
+            cost = (token_count / 1_000_000) * (
+                model_pricing.completion_cost_per_million
+                if is_completion
+                else model_pricing.prompt_cost_per_million
             )
             return cost
 
@@ -405,11 +404,11 @@ class TokenUsageMiddleware:
 
     async def wrap_llm_call(
         self,
+        call_func: callable,
         agent: str,
         operation: str,
         model: str,
         provider: str = "ollama",
-        call_func: callable,
     ):
         """
         Wrap an LLM call to track token usage.
@@ -556,6 +555,7 @@ def update_state_token_usage(state: Dict[str, Any], tracker: TokenTracker) -> Di
 
 
 # Cost estimation helpers
+
 
 def estimate_workflow_cost(
     agents: List[str],

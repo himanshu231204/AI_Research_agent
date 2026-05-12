@@ -13,7 +13,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.config import get_settings
-from api.routes import health, research, websocket, memory
+from api.routes import health, research, websocket, memory, models
 
 # Configure logging
 logging.basicConfig(
@@ -73,6 +73,11 @@ def create_app() -> FastAPI:
         memory.router,
         prefix=settings.api_v1_prefix,
         tags=["Memory & RAG"],
+    )
+    app.include_router(
+        models.router,
+        prefix=settings.api_v1_prefix,
+        tags=["Models & Routing"],
     )
 
     return app

@@ -68,10 +68,32 @@ class Settings(BaseSettings):
         default="redis://localhost:6379/0", alias="CELERY_RESULT_BACKEND"
     )
 
-    # Ollama
+    # Ollama (Local Models)
     ollama_base_url: str = Field(default="http://localhost:11434", alias="OLLAMA_BASE_URL")
     ollama_model: str = Field(default="qwen3", alias="OLLAMA_MODEL")
     ollama_timeout: int = Field(default=120, alias="OLLAMA_TIMEOUT")
+
+    # Cloud Providers (Phase 5)
+    openai_api_key: Optional[str] = Field(default=None, alias="OPENAI_API_KEY")
+    anthropic_api_key: Optional[str] = Field(default=None, alias="ANTHROPIC_API_KEY")
+    google_api_key: Optional[str] = Field(default=None, alias="GOOGLE_API_KEY")
+    groq_api_key: Optional[str] = Field(default=None, alias="GROQ_API_KEY")
+
+    # Model Routing
+    prefer_local_models: bool = Field(default=True, alias="PREFER_LOCAL_MODELS")
+    enable_cloud_fallback: bool = Field(default=True, alias="ENABLE_CLOUD_FALLBACK")
+    local_model_timeout: int = Field(default=120, alias="LOCAL_MODEL_TIMEOUT")
+    cloud_model_timeout: int = Field(default=180, alias="CLOUD_MODEL_TIMEOUT")
+
+    # Cost Management
+    max_cost_per_request: float = Field(default=1.0, alias="MAX_COST_PER_REQUEST")
+    max_cost_per_session: float = Field(default=10.0, alias="MAX_COST_PER_SESSION")
+    max_tokens_per_request: int = Field(default=8192, alias="MAX_TOKENS_PER_REQUEST")
+    max_tokens_per_session: int = Field(default=100000, alias="MAX_TOKENS_PER_SESSION")
+
+    # GPU Settings
+    gpu_memory_threshold: float = Field(default=0.9, alias="GPU_MEMORY_THRESHOLD")
+    enable_gpu_monitoring: bool = Field(default=True, alias="ENABLE_GPU_MONITORING")
 
     # Vector Store (Phase 3 - RAG Infrastructure)
     vector_store_provider: str = Field(default="chroma", alias="VECTOR_STORE_PROVIDER")

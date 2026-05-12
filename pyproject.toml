@@ -1,12 +1,12 @@
 [project]
-name = "research-os"
+name = "research-agent"
 version = "0.1.0"
-description = "Autonomous AI Research Operating System"
+description = "Autonomous AI Research Agent built with LangGraph, FastAPI, Celery, and Ollama."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [
-    { name = "Research OS Team", email = "team@research-os.dev" }
+    { name = "Research OS Team", email = "team@research-agent.dev" }
 ]
 
 dependencies = [
@@ -20,6 +20,7 @@ dependencies = [
     "langgraph>=0.2.0",
     "langchain-core>=0.3.0",
     "langchain-community>=0.3.0",
+    "langsmith>=0.3.0",
 
     # Ollama
     "ollama>=0.3.0",

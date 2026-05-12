@@ -196,7 +196,7 @@ def on_task_retry(sender, task, reason, *args, **kwargs):
 
 
 @task_failure.connect
-def on_task_failure(sender, task_id, exception, args, kwargs, traceback, einfo):
+def on_task_failure(sender, task_id, exception, args, kwargs, traceback, einfo, **other_kwargs):
     """Called when a task fails."""
     logger.error(
         f"Task {task_id} failed",

@@ -90,6 +90,8 @@ class ProviderHealth:
     # Local-specific metrics
     gpu_available: bool = True
     gpu_memory_percent: float = 0.0
+    gpu_count: int = 0
+    inference_mode: str = "unknown"  # "nvidia", "amd", "cpu"
     active_models: List[str] = field(default_factory=list)
 
     # Circuit breaker state
@@ -110,6 +112,19 @@ class ProviderHealth:
             self.status in (ProviderStatus.HEALTHY, ProviderStatus.DEGRADED)
             and not self.circuit_open
         )
+
+    @property
+    def gpu_status(self) -> str:
+        """Get human-readable GPU status."""
+        if not self.gpu_available:
+            if self.inference_mode == "cpu":
+                return "cpu_mode"
+            return "unavailable"
+        if self.gpu_memory_percent > 90:
+            return "saturated"
+        if self.gpu_memory_percent > 70:
+            return "busy"
+        return "available"
 
 
 @dataclass

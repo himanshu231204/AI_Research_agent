@@ -86,6 +86,7 @@ class GPUMonitor:
     - Queue latency
     - Active inference jobs
     - Model load
+    - CPU fallback detection
     """
 
     def __init__(self, ollama_provider: Optional[OllamaProvider] = None):
@@ -93,23 +94,122 @@ class GPUMonitor:
         self._ollama = ollama_provider
         self._metrics_history: List[GPUMetrics] = []
         self._max_history = 100
+        self._last_gpu_check: Optional[datetime] = None
+        self._cache_duration = 5  # seconds
+
+    def set_ollama_provider(self, ollama_provider: OllamaProvider) -> None:
+        """Set or update the Ollama provider reference."""
+        self._ollama = ollama_provider
+        logger.debug("Ollama provider set for GPU monitor")
 
     async def get_current_metrics(self) -> GPUMetrics:
-        """Get current GPU metrics."""
+        """Get current GPU metrics with proper CPU fallback handling."""
         try:
             if self._ollama:
                 gpu_info = await self._ollama.get_gpu_info()
 
+                # Log detailed GPU status
+                logger.info(
+                    f"GPU Monitor: mode={gpu_info.get('inference_mode', 'unknown')}, "
+                    f"available={gpu_info.get('gpu_available', False)}, "
+                    f"count={gpu_info.get('gpu_count', 0)}, "
+                    f"memory={gpu_info.get('memory_used_mb', 0):.0f}/{gpu_info.get('memory_total_mb', 0):.0f}MB, "
+                    f"model={gpu_info.get('model_loaded', 'none')}"
+                )
+
                 return GPUMetrics(
                     gpu_available=gpu_info.get("gpu_available", False),
-                    active_models=[gpu_info.get("model", "")] if gpu_info.get("model") else [],
-                    memory_used_mb=gpu_info.get("size", 0) / (1024 * 1024),
+                    gpu_count=gpu_info.get("gpu_count", 0),
+                    memory_total_mb=gpu_info.get("memory_total_mb", 0.0),
+                    memory_used_mb=gpu_info.get("memory_used_mb", 0.0),
+                    memory_percent=gpu_info.get("memory_percent", 0.0),
+                    active_models=[gpu_info.get("model_loaded")]
+                    if gpu_info.get("model_loaded")
+                    else [],
+                    queue_length=gpu_info.get("queue_length", 0),
                 )
 
         except Exception as e:
             logger.warning(f"Failed to get GPU metrics: {e}")
 
         return GPUMetrics()
+
+    async def get_detailed_status(self) -> Dict[str, Any]:
+        """
+        Get detailed GPU/inference status for frontend display.
+
+        Returns comprehensive status suitable for dashboard display.
+        """
+        try:
+            if self._ollama:
+                gpu_info = await self._ollama.get_gpu_info()
+
+                status = gpu_info.get("status", "unavailable")
+                inference_mode = gpu_info.get("inference_mode", "unknown")
+
+                return {
+                    "available": gpu_info.get("gpu_available", False),
+                    "mode": inference_mode,
+                    "status": status,
+                    "gpu_count": gpu_info.get("gpu_count", 0),
+                    "memory": {
+                        "total_mb": gpu_info.get("memory_total_mb", 0),
+                        "used_mb": gpu_info.get("memory_used_mb", 0),
+                        "free_mb": gpu_info.get("memory_free_mb", 0),
+                        "percent": gpu_info.get("memory_percent", 0),
+                    },
+                    "compute_utilization": gpu_info.get("compute_utilization", 0),
+                    "temperature": gpu_info.get("temperature"),
+                    "driver_version": gpu_info.get("driver_version"),
+                    "model_loaded": gpu_info.get("model_loaded"),
+                    "model_size_mb": gpu_info.get("model_size_bytes", 0) / (1024 * 1024),
+                    "is_saturated": gpu_info.get("is_saturated", False),
+                    "is_busy": gpu_info.get("is_busy", False),
+                    "gpus": gpu_info.get("gpus", []),
+                    "last_updated": gpu_info.get("last_updated"),
+                    # User-friendly messages
+                    "display_status": self._get_display_status(status, inference_mode, gpu_info),
+                    "display_icon": self._get_display_icon(status, inference_mode),
+                }
+
+        except Exception as e:
+            logger.error(f"Failed to get detailed GPU status: {e}")
+            return {
+                "available": False,
+                "mode": "unknown",
+                "status": "error",
+                "error": str(e),
+                "display_status": "Error checking GPU status",
+                "display_icon": "error",
+            }
+
+    def _get_display_status(self, status: str, inference_mode: str, gpu_info: Dict) -> str:
+        """Generate user-friendly display status."""
+        if inference_mode == "cpu":
+            return "CPU Inference Mode"
+        if inference_mode == "amd":
+            if status == "available":
+                return f"AMD GPU Available ({gpu_info.get('gpu_count', 0)})"
+            return "AMD GPU Unavailable"
+        if inference_mode == "nvidia":
+            if status == "saturated":
+                return f"GPU Saturated ({gpu_info.get('memory_percent', 0):.0f}%)"
+            if status == "busy":
+                return f"GPU Busy ({gpu_info.get('memory_percent', 0):.0f}%)"
+            if status == "available":
+                return "GPU Available"
+            return "GPU Unavailable"
+        return "GPU Status Unknown"
+
+    def _get_display_icon(self, status: str, inference_mode: str) -> str:
+        """Get icon identifier for frontend."""
+        if inference_mode == "cpu":
+            return "cpu"
+        if status in ("saturated", "busy"):
+            return "busy"
+        if status == "available":
+            return "available"
+        return "unavailable"
 
     async def check_availability(
         self,
@@ -272,11 +372,11 @@ class AdaptiveScheduler:
 
         # Model preferences by task
         self._model_preferences: Dict[str, List[str]] = {
-            "planning": ["qwen3", "llama3"],
-            "coding": ["deepseek-coder", "qwen3"],
-            "reflection": ["mistral", "llama3"],
-            "summarization": ["llama3", "qwen3"],
-            "general": ["qwen3", "llama3"],
+            "planning": ["mistral:latest", "llama2:latest "],
+            "coding": ["llama2:latest ", "qwen2.5-coder:7b"],
+            "reflection": ["mistral:latest", "llama2:latest "],
+            "summarization": ["llama3", "qwen2.5-coder:7b"],
+            "general": ["mistral:latest", "llama2:latest "],
         }
 
     def set_model_preferences(self, task_type: str, models: List[str]) -> None:

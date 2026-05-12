@@ -5,9 +5,9 @@ Loads environment variables and provides typed configuration.
 """
 
 from functools import lru_cache
-from typing import List, Optional
+from typing import List, Optional, Union
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -127,7 +127,7 @@ class Settings(BaseSettings):
     # LangSmith
     langsmith_tracing: bool = Field(default=False, alias="LANGSMITH_TRACING")
     langsmith_api_key: Optional[str] = Field(default=None, alias="LANGSMITH_API_KEY")
-    langsmith_project: str = Field(default="research-os", alias="LANGSMITH_PROJECT")
+    langsmith_project: str = Field(default="research-agent", alias="LANGSMITH_PROJECT")
 
     # Security
     secret_key: str = Field(default="change-me-in-production", alias="SECRET_KEY")
@@ -140,6 +140,15 @@ class Settings(BaseSettings):
         default=["http://localhost:3000", "http://localhost:5173"],
         alias="CORS_ORIGINS",
     )
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
+        """Parse CORS origins from comma-separated string or JSON array."""
+        if isinstance(v, str):
+            # Handle comma-separated string format from .env
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v if isinstance(v, list) else [v]
 
     @property
     def is_production(self) -> bool:

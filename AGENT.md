@@ -1,6 +1,6 @@
 # AGENT.md
 
-# Autonomous AI Research Operating System
+# Autonomous AI Research Agent
 
 ## Production-Grade Multi-Agent Architecture (FINAL VERSION)
 
@@ -8,7 +8,7 @@
 
 # 1. Vision
 
-Build a production-grade autonomous AI Research Operating System capable of:
+Build a production-grade autonomous AI Research Agent capable of:
 
 * Autonomous planning
 * Multi-source research

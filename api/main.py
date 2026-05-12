@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.config import get_settings
 from api.routes import health, research, websocket, memory, models
+from observability.langsmith import configure_langsmith
 
 # Configure logging
 logging.basicConfig(
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan manager."""
     settings = get_settings()
+    configure_langsmith(settings)
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"Environment: {settings.environment}")
 

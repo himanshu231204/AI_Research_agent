@@ -1,0 +1,1 @@
+export { MemoryInspector } from './memory-inspector';

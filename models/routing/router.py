@@ -34,6 +34,7 @@ from models.providers.base import (
 )
 from models.providers.local import OllamaProvider
 from models.providers.cloud import OpenAIProvider, AnthropicProvider, GoogleProvider
+from models.routing.gpu_telemetry import log_route_decision, get_gpu_telemetry_logger
 
 logger = logging.getLogger(__name__)
 
@@ -313,6 +314,21 @@ class ModelRouter:
             return parts[0], parts[1]
         return parts[0], ""
 
+    def _get_inference_mode(self, provider_name: str) -> str:
+        """
+        Get inference mode for a provider.
+
+        Args:
+            provider_name: Name of the provider
+
+        Returns:
+            Inference mode (nvidia, amd, cpu, unknown)
+        """
+        provider = self.get_provider(provider_name)
+        if provider and hasattr(provider, "_health"):
+            return getattr(provider._health, "inference_mode", "unknown")
+        return "unknown"
+
     async def route(
         self,
         task_type: TaskType,
@@ -353,6 +369,18 @@ class ModelRouter:
             )
 
             decision.latency_ms = (time.perf_counter() - start_time) * 1000
+
+            # Log routing decision
+            inference_mode = self._get_inference_mode(policy.primary_provider)
+            log_route_decision(
+                task_type=task_type.value,
+                provider=policy.primary_provider,
+                model=policy.primary_model,
+                inference_mode=inference_mode,
+                latency_ms=decision.latency_ms,
+                fallback_used=False,
+            )
+
             return response, decision
 
         except Exception as primary_error:
@@ -380,14 +408,37 @@ class ModelRouter:
 
                     self._routing_stats[policy.primary_provider]["fallback_count"] += 1
 
+                    # Log fallback routing decision
+                    fallback_provider, fallback_model = self._parse_provider_model(fallback)
+                    inference_mode = self._get_inference_mode(fallback_provider)
+                    log_route_decision(
+                        task_type=task_type.value,
+                        provider=fallback_provider,
+                        model=fallback_model,
+                        inference_mode=inference_mode,
+                        latency_ms=decision.latency_ms,
+                        fallback_used=True,
+                        fallback_chain=fallback_chain,
+                    )
+
                     return response, decision
 
                 except Exception as fallback_error:
                     logger.warning(f"Fallback {fallback} failed: {fallback_error}")
                     continue
 
-        # All providers failed
+        # All providers failed - log error
         latency_ms = (time.perf_counter() - start_time) * 1000
+        log_route_decision(
+            task_type=task_type.value,
+            provider=policy.primary_provider,
+            model=policy.primary_model,
+            inference_mode=self._get_inference_mode(policy.primary_provider),
+            latency_ms=latency_ms,
+            fallback_used=True,
+            fallback_chain=fallback_chain,
+            error=str(primary_error) if "primary_error" in dir() else "All providers failed",
+        )
         raise ProviderError(f"All providers failed for task type {task_type.value}")
 
     async def _try_provider(

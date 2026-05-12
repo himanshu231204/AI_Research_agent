@@ -15,10 +15,10 @@ from typing import Any, Dict, List, Optional
 from agents.base import BaseAgent
 from graphs.state import ResearchState
 from models.ollama_client import OllamaClient
-from mcp.registry import ToolRegistry, RegistryConfig
-from mcp.client.pool import ConnectionPool, PoolConfig
-from mcp.client.client import MCPClientConfig
-from mcp.transport import TransportType
+from mcplib.registry import ToolRegistry, RegistryConfig
+from mcplib.client.pool import ConnectionPool, PoolConfig
+from mcplib.client.client import MCPClientConfig
+from mcplib.transport import TransportType
 
 logger = logging.getLogger(__name__)
 

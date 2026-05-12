@@ -13,6 +13,7 @@ from typing import Optional, Dict, Any, List
 import httpx
 
 from api.config import get_settings
+from observability.langsmith import traceable
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,7 @@ class OllamaClient:
             )
         return self._client
 
+    @traceable(name="ollama.generate", run_type="llm")
     async def generate(
         self,
         prompt: str,
@@ -117,6 +119,7 @@ class OllamaClient:
             logger.error(f"Ollama request failed: {e}")
             raise OllamaError(f"Request failed: {str(e)}")
 
+    @traceable(name="ollama.chat", run_type="llm")
     async def chat(
         self,
         messages: List[Dict[str, str]],

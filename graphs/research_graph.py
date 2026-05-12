@@ -22,6 +22,7 @@ from agents.planner import PlannerAgent
 from agents.router import RouterAgent
 from agents.reflection import ReflectionAgent
 from agents.writer import WriterAgent
+from observability.langsmith import traceable
 
 from workers.routing import TaskRouter, TaskType, get_router
 from workers.tasks.research import web_search, github_analysis, pdf_analysis
@@ -779,6 +780,7 @@ class DistributedResearchGraph:
         logger.info(f"[{self.session_id}] REFLECTION CONTINUE: Need more research")
         return "router"
 
+    @traceable(name="research.run", run_type="chain")
     async def run(self) -> ResearchState:
         """
         Execute the distributed research graph.

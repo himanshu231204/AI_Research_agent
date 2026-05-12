@@ -62,6 +62,35 @@ class ProviderInfo(BaseModel):
     models: List[str]
     latency_ms: float = 0.0
     circuit_breaker: Optional[Dict[str, Any]] = None
+    # Extended info for local providers
+    inference_mode: Optional[str] = None
+    gpu_count: Optional[int] = None
+    gpu_available: Optional[bool] = None
+    memory_total_mb: Optional[float] = None
+    memory_used_mb: Optional[float] = None
+    memory_percent: Optional[float] = None
+    model_loaded: Optional[str] = None
+
+
+class GPUStatusDetail(BaseModel):
+    """Detailed GPU status for frontend display."""
+
+    available: bool
+    mode: str  # "nvidia", "amd", "cpu", "unknown"
+    status: str  # "available", "busy", "saturated", "unavailable", "cpu_mode"
+    gpu_count: int = 0
+    memory: Dict[str, float] = {}
+    compute_utilization: float = 0.0
+    temperature: Optional[float] = None
+    driver_version: Optional[str] = None
+    model_loaded: Optional[str] = None
+    model_size_mb: float = 0.0
+    is_saturated: bool = False
+    is_busy: bool = False
+    display_status: str = ""
+    display_icon: str = ""
+    last_updated: Optional[str] = None
+    error: Optional[str] = None
 
 
 class ModelStatusResponse(BaseModel):
@@ -69,7 +98,7 @@ class ModelStatusResponse(BaseModel):
 
     timestamp: str
     providers: List[ProviderInfo]
-    gpu_status: Dict[str, Any]
+    gpu_status: GPUStatusDetail
     model_health: Dict[str, Any]
 
 
@@ -100,7 +129,7 @@ async def get_model_status():
     Get status of all models and providers.
 
     Returns:
-        Model status with provider info, GPU status, and health
+        Model status with provider info, detailed GPU status, and health
     """
     router = get_model_router()
     gpu_monitor = get_gpu_monitor()
@@ -108,11 +137,14 @@ async def get_model_status():
 
     providers = []
 
-    # Get Ollama status
+    # Get Ollama status with detailed GPU info
     try:
         ollama = get_ollama_provider()
         ollama_health = await ollama.health_check()
         available_models = await ollama.get_available_models()
+
+        # Get GPU info from provider
+        gpu_info = await ollama.get_gpu_info()
 
         providers.append(
             ProviderInfo(
@@ -122,8 +154,26 @@ async def get_model_status():
                 available=ollama_health,
                 models=available_models,
                 latency_ms=ollama.health.latency_ms,
+                inference_mode=gpu_info.get("inference_mode"),
+                gpu_count=gpu_info.get("gpu_count", 0),
+                gpu_available=gpu_info.get("gpu_available", False),
+                memory_total_mb=gpu_info.get("memory_total_mb"),
+                memory_used_mb=gpu_info.get("memory_used_mb"),
+                memory_percent=gpu_info.get("memory_percent"),
+                model_loaded=gpu_info.get("model_loaded"),
             )
         )
+
+        # Update GPU monitor with provider reference
+        gpu_monitor.set_ollama_provider(ollama)
+
+        logger.debug(
+            f"Ollama status: healthy={ollama_health}, "
+            f"models={len(available_models)}, "
+            f"gpu_mode={gpu_info.get('inference_mode')}, "
+            f"gpu_available={gpu_info.get('gpu_available')}"
+        )
+
     except Exception as e:
         logger.warning(f"Failed to get Ollama status: {e}")
         providers.append(
@@ -133,6 +183,8 @@ async def get_model_status():
                 status="unavailable",
                 available=False,
                 models=[],
+                inference_mode="unknown",
+                gpu_available=False,
             )
         )
 
@@ -150,18 +202,20 @@ async def get_model_status():
                 )
             )
 
-    # Get GPU status
+    # Get detailed GPU status
     try:
-        gpu_metrics = await gpu_monitor.get_current_metrics()
-        gpu_status = {
-            "available": gpu_metrics.gpu_available,
-            "memory_percent": gpu_metrics.memory_percent,
-            "is_saturated": gpu_metrics.is_saturated,
-            "active_models": gpu_metrics.active_models,
-        }
+        detailed_status = await gpu_monitor.get_detailed_status()
+        gpu_status = GPUStatusDetail(**detailed_status)
     except Exception as e:
-        logger.warning(f"Failed to get GPU status: {e}")
-        gpu_status = {"available": False, "error": str(e)}
+        logger.warning(f"Failed to get detailed GPU status: {e}")
+        gpu_status = GPUStatusDetail(
+            available=False,
+            mode="unknown",
+            status="error",
+            error=str(e),
+            display_status="Error checking GPU status",
+            display_icon="error",
+        )
 
     # Get model health
     model_health = {}
@@ -382,3 +436,42 @@ async def models_health():
         "healthy": all(results.values()) if results else False,
         "providers": results,
     }
+
+
+# Dedicated GPU status endpoint
+
+
+@router.get("/gpu-status")
+async def get_gpu_status():
+    """
+    Get detailed GPU status for monitoring dashboard.
+
+    This endpoint provides comprehensive GPU information including:
+    - GPU availability and count
+    - Memory usage
+    - Inference mode (NVIDIA/AMD/CPU)
+    - Loaded models
+    - User-friendly status messages
+
+    Returns:
+        Detailed GPU status
+    """
+    gpu_monitor = get_gpu_monitor()
+
+    try:
+        ollama = get_ollama_provider()
+        gpu_monitor.set_ollama_provider(ollama)
+
+        detailed_status = await gpu_monitor.get_detailed_status()
+        return detailed_status
+
+    except Exception as e:
+        logger.error(f"Failed to get GPU status: {e}")
+        return {
+            "available": False,
+            "mode": "unknown",
+            "status": "error",
+            "error": str(e),
+            "display_status": "GPU Status Error",
+            "display_icon": "error",
+        }

@@ -1,6 +1,6 @@
-# Research OS - Autonomous AI Research Operating System
+# AI Research Agent - Autonomous AI Research Agent
 
-A production-grade autonomous AI Research Operating System built with LangGraph, FastAPI, Celery, and Ollama.
+A production-grade autonomous AI Research Agent built with LangGraph, FastAPI, Celery, and Ollama.
 
 ## Features
 
@@ -97,7 +97,7 @@ make format
 ## Project Structure
 
 ```
-research-os/
+research-agent/
 ├── agents/          # Agent implementations
 ├── api/             # FastAPI application
 ├── graphs/          # LangGraph definitions

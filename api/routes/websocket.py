@@ -147,6 +147,7 @@ async def notify_research_update(session_id: str, update: Dict[str, Any]) -> Non
 
     This function is called by the research graph to notify clients of progress.
     """
+    logger.info(f"WebSocket update for session {session_id}: {update.get('status', 'unknown')}")
     await manager.send_message(
         session_id,
         WebSocketMessage(type="research_update", payload=update),
@@ -155,11 +156,16 @@ async def notify_research_update(session_id: str, update: Dict[str, Any]) -> Non
 
 async def notify_agent_activity(session_id: str, agent: str, activity: str) -> None:
     """Send agent activity notification."""
+    logger.info(f"Agent activity for session {session_id}: {agent} - {activity}")
     await manager.send_message(
         session_id,
         WebSocketMessage(
             type="agent_activity",
-            payload={"agent": agent, "activity": activity},
+            payload={
+                "agent": agent,
+                "activity": activity,
+                "timestamp": asyncio.get_event_loop().time(),
+            },
         ),
     )
 
@@ -171,5 +177,99 @@ async def notify_research_complete(session_id: str, report: str) -> None:
         WebSocketMessage(
             type="research_complete",
             payload={"report": report},
+        ),
+    )
+
+
+# Model Selection WebSocket Events
+
+
+async def notify_model_update(session_id: str, update: Dict[str, Any]) -> None:
+    """
+    Send model selection update to connected clients.
+
+    This is called when:
+    - User changes provider/model selection
+    - Fallback occurs
+    - Provider status changes
+    """
+    await manager.send_message(
+        session_id,
+        WebSocketMessage(type="model_update", payload=update),
+    )
+
+
+async def notify_fallback_event(
+    session_id: str,
+    from_provider: str,
+    from_model: str,
+    to_provider: str,
+    to_model: str,
+    reason: str,
+) -> None:
+    """
+    Notify clients when a fallback occurs.
+
+    This helps the frontend display:
+    - That a fallback happened
+    - What was the original model
+    - What is the fallback model
+    - Why the fallback occurred
+    """
+    await manager.send_message(
+        session_id,
+        WebSocketMessage(
+            type="fallback_event",
+            payload={
+                "from_provider": from_provider,
+                "from_model": from_model,
+                "to_provider": to_provider,
+                "to_model": to_model,
+                "reason": reason,
+                "timestamp": asyncio.get_event_loop().time(),
+            },
+        ),
+    )
+
+
+async def notify_provider_status_change(
+    session_id: str,
+    provider: str,
+    status: str,
+    available: bool,
+) -> None:
+    """
+    Notify clients when provider status changes.
+
+    This helps the frontend show:
+    - Provider going offline/online
+    - Health status changes
+    - Model availability changes
+    """
+    await manager.send_message(
+        session_id,
+        WebSocketMessage(
+            type="provider_status_change",
+            payload={
+                "provider": provider,
+                "status": status,
+                "available": available,
+                "timestamp": asyncio.get_event_loop().time(),
+            },
+        ),
+    )
+
+
+async def notify_models_refreshed(session_id: str, models: Dict[str, Any]) -> None:
+    """
+    Notify clients when models are refreshed.
+
+    This helps the frontend update the model list dynamically.
+    """
+    await manager.send_message(
+        session_id,
+        WebSocketMessage(
+            type="models_refreshed",
+            payload=models,
         ),
     )

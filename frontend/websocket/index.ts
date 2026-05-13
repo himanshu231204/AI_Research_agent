@@ -1,7 +1,8 @@
-import { useWSStore, useResearchStore, useAgentsStore, useTimelineStore, useChatStore } from '@/stores';
+import { useWSStore, useResearchStore, useAgentsStore, useTimelineStore, useChatStore, useModelSelectionStore } from '@/stores';
 import type { WSMessageType, ResearchUpdatePayload, AgentActivityPayload, TokenStreamPayload } from '@/types';
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
+const WS_PREFIX = '/ws';
 
 type MessageHandler = (payload: unknown) => void;
 
@@ -24,7 +25,10 @@ class WebSocketService {
     this.isIntentionalClose = false;
 
     try {
-      this.ws = new WebSocket(`${WS_URL}/ws/${sessionId}`);
+      // Build WebSocket URL - WebSocket is at root level, not under /api/v1 prefix
+      const wsUrl = `${WS_URL}${WS_PREFIX}/${sessionId}`;
+      console.log(`[WebSocket] Connecting to: ${wsUrl}`);
+      this.ws = new WebSocket(wsUrl);
       this.setupEventHandlers();
     } catch (error) {
       console.error('WebSocket connection error:', error);
@@ -93,6 +97,39 @@ class WebSocketService {
       case 'pong':
         // Heartbeat response
         break;
+      
+      // Model selection events
+      case 'model_update':
+        this.handleModelUpdate(payload as {
+          selected_provider: string;
+          selected_model: string;
+          routing_mode: string;
+          active_provider: string;
+          active_model: string;
+        });
+        break;
+      case 'fallback_event':
+        this.handleFallbackEvent(payload as {
+          from_provider: string;
+          from_model: string;
+          to_provider: string;
+          to_model: string;
+          reason: string;
+        });
+        break;
+      case 'provider_status_change':
+        this.handleProviderStatusChange(payload as {
+          provider: string;
+          status: string;
+          available: boolean;
+        });
+        break;
+      case 'models_refreshed':
+        this.handleModelsRefreshed(payload as {
+          local: unknown[];
+          cloud: Record<string, unknown[]>;
+        });
+        break;
     }
 
     // Call registered handlers
@@ -100,6 +137,67 @@ class WebSocketService {
     if (handlers) {
       handlers.forEach((handler) => handler(payload));
     }
+  }
+
+  private handleModelUpdate(payload: {
+    selected_provider: string;
+    selected_model: string;
+    routing_mode: string;
+    active_provider: string;
+    active_model: string;
+  }): void {
+    const store = useModelSelectionStore.getState();
+    store.setSelectedProvider(payload.selected_provider);
+    store.setSelectedModel(payload.selected_model);
+    store.setRoutingMode(payload.routing_mode);
+    store.setActiveModelInfo(payload.active_provider, payload.active_model);
+  }
+
+  private handleFallbackEvent(payload: {
+    from_provider: string;
+    from_model: string;
+    to_provider: string;
+    to_model: string;
+    reason: string;
+  }): void {
+    const store = useModelSelectionStore.getState();
+    store.setFallbackInfo(true, payload.reason);
+    store.setActiveModelInfo(payload.to_provider, payload.to_model);
+    
+    // Add timeline event
+    useTimelineStore.getState().addEvent({
+      id: `event-${Date.now()}`,
+      type: 'model_routing',
+      message: `Fallback: ${payload.from_provider}/${payload.from_model} → ${payload.to_provider}/${payload.to_model} (${payload.reason})`,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  private handleProviderStatusChange(payload: {
+    provider: string;
+    status: string;
+    available: boolean;
+  }): void {
+    // Refresh provider status
+    const store = useModelSelectionStore.getState();
+    const currentStatuses = store.providerStatuses;
+    
+    const updatedStatuses = currentStatuses.map(s => 
+      s.name === payload.provider
+        ? { ...s, status: payload.status, available: payload.available }
+        : s
+    );
+    
+    store.setProviderStatuses(updatedStatuses);
+  }
+
+  private handleModelsRefreshed(payload: {
+    local: unknown[];
+    cloud: Record<string, unknown[]>;
+  }): void {
+    const store = useModelSelectionStore.getState();
+    store.setLocalModels(payload.local as never[]);
+    store.setCloudModels(payload.cloud as Record<string, never[]>);
   }
 
   private handleResearchUpdate(payload: ResearchUpdatePayload): void {

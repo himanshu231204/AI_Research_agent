@@ -1,5 +1,8 @@
 """
 MCP Gateway - Central hub for MCP server communication
+
+NOTE: Custom MCP servers removed in Phase 1 refactoring.
+Gateway now routes to built-in MCP servers via connection pool.
 """
 
 import asyncio
@@ -8,11 +11,6 @@ from typing import Dict, Any
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-
-from mcplib.servers.browser_server import BrowserMCPServer
-from mcplib.servers.github_server import GitHubMCPServer
-from mcplib.servers.filesystem_server import FilesystemMCPServer
-from mcplib.servers.terminal_server import TerminalMCPServer
 
 logger = logging.getLogger(__name__)
 
@@ -42,38 +40,17 @@ class MCPResponse(BaseModel):
 
 @app.on_event("startup")
 async def startup():
-    """Initialize MCP servers"""
+    """Initialize MCP Gateway"""
     logger.info("Starting MCP Gateway")
-
-    # Initialize servers
-    browser_server = BrowserMCPServer()
-    await browser_server.start()
-    _servers["browser"] = browser_server
-
-    github_server = GitHubMCPServer()
-    await github_server.start()
-    _servers["github"] = github_server
-
-    filesystem_server = FilesystemMCPServer()
-    await filesystem_server.start()
-    _servers["filesystem"] = filesystem_server
-
-    terminal_server = TerminalMCPServer()
-    await terminal_server.start()
-    _servers["terminal"] = terminal_server
-
-    logger.info(f"MCP Gateway started with {len(_servers)} servers")
+    logger.info("✅ Custom MCP servers removed (Phase 1 refactoring)")
+    logger.info("📦 Using built-in MCP servers via connection pool (see config/mcp_servers.json)")
 
 
 @app.on_event("shutdown")
 async def shutdown():
-    """Shutdown MCP servers"""
+    """Shutdown MCP Gateway"""
     logger.info("Shutting down MCP Gateway")
-
-    for server in _servers.values():
-        await server.stop()
-
-    _servers.clear()
+    # Custom servers removed in Phase 1
 
 
 @app.get("/health")

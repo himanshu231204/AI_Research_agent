@@ -111,6 +111,7 @@ services:
       - "8000:8000"
     environment:
       - ENVIRONMENT=development
+      - API_V1_PREFIX=/api/v1
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
       - POSTGRES_USER=research_os
@@ -128,6 +129,7 @@ services:
       - DEBUG=true
       - ENABLE_GPU_MONITORING=true
       - GPU_MEMORY_THRESHOLD=0.9
+      - CORS_ORIGINS=["http://localhost:3000","http://frontend:3000","http://0.0.0.0:3000"]
     # GPU passthrough for GPU monitoring
     deploy:
       resources:
@@ -634,3 +636,8 @@ volumes:
   prometheus_data:
   browser_artifacts:
   grafana_data:
+
+networks:
+  default:
+    name: research-agent-network
+    driver: bridge

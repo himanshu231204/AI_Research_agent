@@ -197,6 +197,36 @@ def on_task_retry(sender, task, reason, *args, **kwargs):
 
 @task_failure.connect
 def on_task_failure(sender, task_id, exception, args, kwargs, traceback, einfo, **other_kwargs):
+    """Handle task failure: log and route to dead-letter queue if retries exhausted."""
+    logger.error(
+        f"Task {task_id} failed",
+        extra={
+            "task_id": task_id,
+            "task_name": sender,
+            "exception": str(exception),
+            "traceback": str(traceback),
+        },
+    )
+    # If the task has exhausted retries, forward to dead-letter queue
+    try:
+        # Retrieve max_retries from task config if available
+        max_retries = getattr(sender, "max_retries", 0)
+        # Celery provides request.retries attribute via kwargs
+        retries = kwargs.get("retries", 0)
+        if retries >= max_retries:
+            # Requeue task to dead_letter with same args for debugging
+            dead_letter_queue = "dead_letter"
+            logger.warning(
+                f"Routing failed task {task_id} to dead-letter queue {dead_letter_queue}",
+                extra={"original_task": sender, "queue": dead_letter_queue},
+            )
+            # Use apply_async to send to dead_letter queue without retry
+            sender.apply_async(args=args, kwargs=kwargs, queue=dead_letter_queue, retry=False)
+    except Exception as e:
+        logger.error(f"Failed to route task {task_id} to dead-letter queue: {e}")
+    # Original failure handling continues
+    # Note: raising exception is not needed here as Celery already marks task failed
+
     """Called when a task fails."""
     logger.error(
         f"Task {task_id} failed",

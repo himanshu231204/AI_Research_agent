@@ -1,0 +1,142 @@
+{
+  "version": "2.0.0",
+  "servers": [
+    {
+      "name": "browser",
+      "type": "builtin",
+      "enabled": true,
+      "description": "Browser automation via Playwright MCP",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-playwright"],
+      "capabilities": ["browser_navigate", "browser_screenshot", "browser_click", "browser_type", "browser_evaluate"],
+      "timeout": 30,
+      "health_check_interval": 30,
+      "env": {
+        "DEBUG": "${DEBUG:-false}"
+      },
+      "config": {
+        "headless": true,
+        "viewport_width": 1920,
+        "viewport_height": 1080
+      }
+    },
+    {
+      "name": "github",
+      "type": "builtin",
+      "enabled": true,
+      "description": "GitHub API integration via MCP",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-github"],
+      "capabilities": ["github_search_repos", "github_get_file", "github_list_files", "github_get_repo_info"],
+      "timeout": 30,
+      "health_check_interval": 60,
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      },
+      "config": {
+        "base_url": "https://api.github.com",
+        "per_page": 30
+      }
+    },
+    {
+      "name": "filesystem",
+      "type": "builtin",
+      "enabled": true,
+      "description": "Local filesystem operations via MCP",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-filesystem"],
+      "capabilities": ["filesystem_read", "filesystem_write", "filesystem_list", "filesystem_exists", "filesystem_delete", "filesystem_mkdir"],
+      "timeout": 10,
+      "health_check_interval": 60,
+      "env": {},
+      "config": {
+        "base_path": ".",
+        "allowed_extensions": [".py", ".txt", ".md", ".json", ".yaml", ".yml", ".js", ".ts"],
+        "max_file_size": 10485760
+      }
+    },
+    {
+      "name": "terminal",
+      "type": "builtin",
+      "enabled": true,
+      "description": "Safe terminal command execution via MCP",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-bash"],
+      "capabilities": ["terminal_execute", "terminal_run_script"],
+      "timeout": 60,
+      "health_check_interval": 60,
+      "env": {},
+      "config": {
+        "timeout": 30,
+        "shell": "bash",
+        "blocked_commands": [
+          "rm -rf /",
+          "rm -rf /*",
+          "mkfs",
+          "dd if=/dev/zero",
+          ":(){:|:&};:",
+          "chmod -R 777 /",
+          "chown -R"
+        ]
+      }
+    }
+      ,
+      {
+        "name": "websearch",
+        "type": "builtin",
+        "enabled": true,
+        "description": "Web search via free WebSearch MCP",
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["@modelcontextprotocol/server-websearch"],
+        "capabilities": ["web_search", "web_open"],
+        "timeout": 30,
+        "health_check_interval": 60,
+        "env": {
+          "WEBSEARCH_API_KEY": "${WEBSEARCH_API_KEY}" 
+        },
+        "config": {
+          "provider": "free",
+          "region": "us"
+        }
+      }
+      ,
+      {
+        "name": "web-search",
+        "type": "remote",
+        "enabled": true,
+        "description": "Hosted WebSearch MCP (HTTP)",
+        "transport": "http",
+        "url": "https://mcp-web-search-nwgd.onrender.com/mcp",
+        "capabilities": ["web_search", "web_open"],
+        "timeout": 30,
+        "health_check_interval": 60,
+        "env": {
+          "WEBSEARCH_API_KEY": "${WEBSEARCH_API_KEY}"
+        },
+        "config": {
+          "headers": {
+            "Authorization": "Bearer ${WEBSEARCH_API_KEY}"
+          }
+        }
+      }
+  ],
+  "registry": {
+    "enable_auto_discovery": true,
+    "discovery_interval": 60,
+    "cache_ttl": 300,
+    "max_tools": 1000
+  },
+  "pool": {
+    "max_connections": 10,
+    "max_per_server": 3,
+    "connection_timeout": 30,
+    "idle_timeout": 300,
+    "max_retries": 3,
+    "health_check_interval": 30
+  }
+}

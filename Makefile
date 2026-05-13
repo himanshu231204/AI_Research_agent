@@ -171,3 +171,96 @@ run-dev:
 	@echo ""
 	@echo "Press Ctrl+C to stop all servers"
 	@wait
+
+# ============================================================================
+# System Diagnostics
+# ============================================================================
+
+diagnose:
+	@echo "==> Running system diagnostics..."
+	@echo ""
+	@echo "=== API Routes Check ==="
+	@curl -s http://localhost:8000/health/routes 2>/dev/null | python -m json.tool 2>/dev/null || echo "API not running or routes unavailable"
+	@echo ""
+	@echo "=== Health Check ==="
+	@curl -s http://localhost:8000/health 2>/dev/null | python -m json.tool 2>/dev/null || echo "API not running"
+	@echo ""
+	@echo "=== WebSocket Health ==="
+	@curl -s http://localhost:8000/health/websocket 2>/dev/null | python -m json.tool 2>/dev/null || echo "WebSocket endpoint unavailable"
+	@echo ""
+	@echo "=== Model Status ==="
+	@curl -s http://localhost:8000/api/v1/models/status 2>/dev/null | python -m json.tool 2>/dev/null || echo "Model status unavailable"
+	@echo ""
+	@echo "=== GPU Status ==="
+	@curl -s http://localhost:8000/api/v1/models/gpu-status 2>/dev/null | python -m json.tool 2>/dev/null || echo "GPU status unavailable"
+	@echo ""
+	@echo "=== Worker Status ==="
+	@curl -s http://localhost:8000/health/workers 2>/dev/null | python -m json.tool 2>/dev/null || echo "Worker status unavailable"
+	@echo ""
+	@echo "=== Queue Status ==="
+	@curl -s http://localhost:8000/health/queues 2>/dev/null | python -m json.tool 2>/dev/null || echo "Queue status unavailable"
+	@echo ""
+	@echo "=== Memory Stats ==="
+	@curl -s http://localhost:8000/api/v1/memory/stats 2>/dev/null | python -m json.tool 2>/dev/null || echo "Memory stats unavailable"
+	@echo ""
+	@echo "=== Vector Store Health ==="
+	@curl -s http://localhost:8000/api/v1/memory/vector-store/health 2>/dev/null | python -m json.tool 2>/dev/null || echo "Vector store unavailable"
+	@echo ""
+	@echo "==> Diagnostics complete"
+
+validate-system:
+	@echo "==> Validating system components..."
+	@echo ""
+	@echo "=== Checking API ==="
+	@curl -sf http://localhost:8000/health && echo "API: OK" || echo "API: FAILED"
+	@echo ""
+	@echo "=== Checking Redis ==="
+	@redis-cli ping 2>/dev/null && echo "Redis: OK" || echo "Redis: FAILED (is Redis running?)"
+	@echo ""
+	@echo "=== Checking PostgreSQL ==="
+	@pg_isready -h localhost -p 5432 -U research_os 2>/dev/null && echo "PostgreSQL: OK" || echo "PostgreSQL: FAILED (is PostgreSQL running?)"
+	@echo ""
+	@echo "=== Checking Ollama ==="
+	@curl -sf http://localhost:11434/api/tags 2>/dev/null && echo "Ollama: OK" || echo "Ollama: FAILED (is Ollama running?)"
+	@echo ""
+	@echo "=== Checking Celery Workers ==="
+	@celery -A workers.celery_app inspect ping 2>/dev/null && echo "Celery: OK" || echo "Celery: FAILED (are workers running?)"
+	@echo ""
+	@echo "==> Validation complete"
+
+test-e2e:
+	@echo "==> Running end-to-end tests..."
+	@echo ""
+	@echo "=== Testing API Health ==="
+	@curl -sf http://localhost:8000/health || { echo "FAILED: API not responding"; exit 1; }
+	@echo ""
+	@echo "=== Testing Model API ==="
+	@curl -sf http://localhost:8000/api/v1/models/status || { echo "FAILED: Model API not responding"; exit 1; }
+	@echo ""
+	@echo "=== Testing Research API ==="
+	@curl -sf -X POST http://localhost:8000/api/v1/research \
+		-H "Content-Type: application/json" \
+		-d '{"query": "test", "max_reflections": 1}' || { echo "FAILED: Research API not responding"; exit 1; }
+	@echo ""
+	@echo "=== Testing Memory API ==="
+	@curl -sf http://localhost:8000/api/v1/memory/stats || { echo "FAILED: Memory API not responding"; exit 1; }
+	@echo ""
+	@echo "==> E2E tests complete"
+
+check-routing:
+	@echo "=== Checking API Routes ==="
+	@curl -s http://localhost:8000/health/routes | python -m json.tool
+	@echo ""
+	@echo "=== Route Summary ==="
+	@echo "All routes should be registered above."
+
+check-websockets:
+	@echo "=== WebSocket Connection Test ==="
+	@echo "WebSocket endpoint: ws://localhost:8000/ws/{session_id}"
+	@echo ""
+	@echo "To test manually, use a WebSocket client or browser console:"
+	@echo "  const ws = new WebSocket('ws://localhost:8000/ws/test-session');"
+	@echo "  ws.onmessage = (e) => console.log(e.data);"
+	@echo ""
+	@echo "Current WebSocket connections:"
+	@curl -s http://localhost:8000/health/websocket | python -m json.tool

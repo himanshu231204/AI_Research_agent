@@ -263,7 +263,11 @@ export type WSMessageType =
   | 'error'
   | 'pong'
   | 'subscribe'
-  | 'unsubscribe';
+  | 'unsubscribe'
+  | 'model_update'
+  | 'fallback_event'
+  | 'provider_status_change'
+  | 'models_refreshed';
 
 export interface ResearchUpdatePayload {
   session_id: string;
@@ -376,4 +380,30 @@ export interface AuthState {
   user: AuthUser | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+}
+
+// Model Selection Types
+export interface ModelSelection {
+  session_id: string;
+  selected_provider: string;
+  selected_model: string;
+  routing_mode: string;
+  active_provider: string;
+  active_model: string;
+}
+
+export interface FallbackEvent {
+  from_provider: string;
+  from_model: string;
+  to_provider: string;
+  to_model: string;
+  reason: string;
+  timestamp: number;
+}
+
+export interface ProviderStatusChange {
+  provider: string;
+  status: string;
+  available: boolean;
+  timestamp: number;
 }

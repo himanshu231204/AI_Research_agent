@@ -62,6 +62,35 @@ class OllamaClient:
             )
         return self._client
 
+    @staticmethod
+    def _is_cloud_model(model_name: str) -> bool:
+        """Return True when the model looks like an Ollama cloud alias."""
+        normalized = model_name.lower()
+        return normalized.endswith("-cloud") or normalized.endswith(":cloud") or ":cloud" in normalized
+
+    def _select_available_model(self, requested_model: str, available_models: List[str]) -> str:
+        """Choose the best installed model for a request."""
+        if not available_models:
+            return requested_model
+
+        exact_matches = [
+            model_name
+            for model_name in available_models
+            if model_name == requested_model or model_name.startswith(f"{requested_model}:")
+        ]
+        if exact_matches:
+            return exact_matches[0]
+
+        local_models = [model_name for model_name in available_models if not self._is_cloud_model(model_name)]
+        return local_models[0] if local_models else available_models[0]
+
+    async def _resolve_model_name(self, requested_model: Optional[str] = None) -> str:
+        """Resolve a configured model to one that is actually installed."""
+        model_name = requested_model or self.model_name
+        available_models = await self.list_models()
+        model_names = [model.get("name", "") for model in available_models if model.get("name")]
+        return self._select_available_model(model_name, model_names)
+
     @traceable(name="ollama.generate", run_type="llm")
     async def generate(
         self,
@@ -83,10 +112,11 @@ class OllamaClient:
             Generated text
         """
         client = await self._get_client()
+        model_name = await self._resolve_model_name(self.model_name)
 
         # Build request payload
         payload: Dict[str, Any] = {
-            "model": self.model_name,
+            "model": model_name,
             "prompt": prompt,
             "stream": False,
             "options": {
@@ -138,9 +168,10 @@ class OllamaClient:
             Assistant's response
         """
         client = await self._get_client()
+        model_name = await self._resolve_model_name(self.model_name)
 
         payload: Dict[str, Any] = {
-            "model": self.model_name,
+            "model": model_name,
             "messages": messages,
             "stream": False,
             "options": {

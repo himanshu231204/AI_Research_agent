@@ -35,6 +35,7 @@ from models.providers.base import (
 from models.providers.local import OllamaProvider
 from models.providers.cloud import OpenAIProvider, AnthropicProvider, GoogleProvider
 from models.routing.gpu_telemetry import log_route_decision, get_gpu_telemetry_logger
+from models.registry import get_model_registry, RoutingMode
 
 logger = logging.getLogger(__name__)
 
@@ -300,6 +301,66 @@ class ModelRouter:
     def get_policy(self, task_type: TaskType) -> RoutingPolicy:
         """Get routing policy for task type."""
         return self._routing_policies.get(task_type, DEFAULT_ROUTING_POLICIES[TaskType.GENERAL])
+
+    def resolve_model_for_session(
+        self,
+        session_id: str,
+        task_type: TaskType = TaskType.GENERAL,
+    ) -> tuple[str, str]:
+        """
+        Resolve the actual model to use based on user selection and routing mode.
+
+        This method respects:
+        - User-selected provider
+        - User-selected model
+        - User-selected routing mode
+        - Automatic fallback when needed
+
+        Args:
+            session_id: Session identifier
+            task_type: Type of task being performed
+
+        Returns:
+            Tuple of (provider_name, model_name)
+        """
+        try:
+            registry = get_model_registry()
+            return registry.resolve_model(session_id, task_type.value)
+        except Exception as e:
+            logger.warning(f"Failed to get user selection, using default: {e}")
+            # Fallback to default policy
+            policy = self.get_policy(task_type)
+            return policy.primary_provider, policy.primary_model
+
+    def record_fallback(
+        self,
+        session_id: str,
+        from_provider: str,
+        from_model: str,
+        to_provider: str,
+        to_model: str,
+        reason: str,
+    ) -> None:
+        """
+        Record a fallback event for the session.
+
+        Args:
+            session_id: Session identifier
+            from_provider: Original provider
+            from_model: Original model
+            to_provider: Fallback provider
+            to_model: Fallback model
+            reason: Reason for fallback
+        """
+        logger.info(
+            f"Fallback for session {session_id}: {from_provider}:{from_model} -> "
+            f"{to_provider}:{to_model} (reason: {reason})"
+        )
+
+        # Update routing stats
+        self._routing_stats[from_provider]["fallback_count"] += 1
+
+        # The session state will be updated by the graph execution
 
     def _get_circuit_breaker(self, provider_name: str) -> CircuitBreakerState:
         """Get or create circuit breaker for provider."""

@@ -9,3 +9,4 @@ export * from './layout/sidebar';
 export * from './layout/header';
 export * from './layout/app-shell';
 export * from './providers/theme-provider';
+export { DebugDashboard } from './DebugDashboard';

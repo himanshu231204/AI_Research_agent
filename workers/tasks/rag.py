@@ -31,6 +31,19 @@ class RAGTask(Task):
     retry_jitter = True
     max_retries = 3
 
+    def __call__(self, *args, **kwargs):
+        """Log task invocation with distributed metadata."""
+        correlation_id = kwargs.get("correlation_id", "unknown")
+        workflow_id = kwargs.get("workflow_id", "unknown")
+        trace_id = kwargs.get("trace_id", "unknown")
+
+        logger.info(
+            f"[correlation_id={correlation_id}] [workflow_id={workflow_id}] "
+            f"[trace_id={trace_id}] Task {self.name} invoked"
+        )
+
+        return super().__call__(*args, **kwargs)
+
 
 @celery_app.task(
     bind=True,
@@ -46,6 +59,11 @@ def chunk_document(
     chunk_size: int = 1000,
     chunk_overlap: int = 200,
     metadata: Optional[Dict[str, Any]] = None,
+    # Distributed metadata - optional but supported
+    correlation_id: Optional[str] = None,
+    workflow_id: Optional[str] = None,
+    trace_id: Optional[str] = None,
+    **kwargs,
 ) -> Dict[str, Any]:
     """
     Split a document into chunks for embedding.
@@ -56,11 +74,18 @@ def chunk_document(
         chunk_size: Maximum chunk size in characters
         chunk_overlap: Overlap between chunks
         metadata: Optional document metadata
+        correlation_id: Optional correlation ID for distributed tracing
+        workflow_id: Optional workflow identifier
+        trace_id: Optional LangSmith trace ID
+        **kwargs: Additional keyword arguments for backward compatibility
 
     Returns:
         Chunked document data
     """
-    logger.info(f"[{session_id}] Chunking document: {file_path}")
+    logger.info(
+        f"[session_id={session_id}] [correlation_id={correlation_id}] "
+        f"[workflow_id={workflow_id}] Chunking document: {file_path}"
+    )
 
     try:
         # In production, this would use RecursiveCharacterTextSplitter
@@ -81,13 +106,23 @@ def chunk_document(
             "chunk_count": len(chunks),
             "metadata": metadata or {},
             "processing_time": 0.5,
+            # Include distributed metadata in result for tracing
+            "correlation_id": correlation_id,
+            "workflow_id": workflow_id,
+            "trace_id": trace_id,
         }
 
-        logger.info(f"[{session_id}] Document chunked into {len(chunks)} chunks")
+        logger.info(
+            f"[session_id={session_id}] [correlation_id={correlation_id}] "
+            f"Document chunked into {len(chunks)} chunks"
+        )
         return result
 
     except Exception as e:
-        logger.error(f"[{session_id}] Document chunking failed: {e}")
+        logger.error(
+            f"[session_id={session_id}] [correlation_id={correlation_id}] "
+            f"Document chunking failed: {e}"
+        )
         raise self.retry(exc=e)
 
 
@@ -104,6 +139,11 @@ def generate_embeddings(
     session_id: str,
     model: str = "nomic-embed-text",
     metadata: Optional[Dict[str, Any]] = None,
+    # Distributed metadata - optional but supported
+    correlation_id: Optional[str] = None,
+    workflow_id: Optional[str] = None,
+    trace_id: Optional[str] = None,
+    **kwargs,
 ) -> Dict[str, Any]:
     """
     Generate embeddings for document chunks.
@@ -113,11 +153,18 @@ def generate_embeddings(
         session_id: Session identifier
         model: Embedding model name
         metadata: Optional metadata
+        correlation_id: Optional correlation ID for distributed tracing
+        workflow_id: Optional workflow identifier
+        trace_id: Optional LangSmith trace ID
+        **kwargs: Additional keyword arguments for backward compatibility
 
     Returns:
         Embeddings data
     """
-    logger.info(f"[{session_id}] Generating embeddings for {len(chunks)} chunks")
+    logger.info(
+        f"[session_id={session_id}] [correlation_id={correlation_id}] "
+        f"[workflow_id={workflow_id}] Generating embeddings for {len(chunks)} chunks"
+    )
 
     try:
         # In production, this would call Ollama or external embedding service
@@ -145,13 +192,23 @@ def generate_embeddings(
             "model": model,
             "total_tokens": len(chunks) * 100,  # Mock token count
             "metadata": metadata or {},
+            # Include distributed metadata in result for tracing
+            "correlation_id": correlation_id,
+            "workflow_id": workflow_id,
+            "trace_id": trace_id,
         }
 
-        logger.info(f"[{session_id}] Generated {len(embeddings)} embeddings")
+        logger.info(
+            f"[session_id={session_id}] [correlation_id={correlation_id}] "
+            f"Generated {len(embeddings)} embeddings"
+        )
         return result
 
     except Exception as e:
-        logger.error(f"[{session_id}] Embedding generation failed: {e}")
+        logger.error(
+            f"[session_id={session_id}] [correlation_id={correlation_id}] "
+            f"Embedding generation failed: {e}"
+        )
         raise self.retry(exc=e)
 
 
@@ -168,6 +225,11 @@ def store_vectors(
     embeddings: List[Dict[str, Any]],
     session_id: str,
     metadata: Optional[Dict[str, Any]] = None,
+    # Distributed metadata - optional but supported
+    correlation_id: Optional[str] = None,
+    workflow_id: Optional[str] = None,
+    trace_id: Optional[str] = None,
+    **kwargs,
 ) -> Dict[str, Any]:
     """
     Store embeddings in vector database.
@@ -177,11 +239,18 @@ def store_vectors(
         embeddings: List of embedding data
         session_id: Session identifier
         metadata: Optional metadata
+        correlation_id: Optional correlation ID for distributed tracing
+        workflow_id: Optional workflow identifier
+        trace_id: Optional LangSmith trace ID
+        **kwargs: Additional keyword arguments for backward compatibility
 
     Returns:
         Storage result
     """
-    logger.info(f"[{session_id}] Storing {len(embeddings)} vectors in {collection_name}")
+    logger.info(
+        f"[session_id={session_id}] [correlation_id={correlation_id}] "
+        f"[workflow_id={workflow_id}] Storing {len(embeddings)} vectors in {collection_name}"
+    )
 
     try:
         # In production, this would store in ChromaDB or Qdrant
@@ -194,13 +263,23 @@ def store_vectors(
             "collection_id": f"col_{hashlib.md5(collection_name.encode()).hexdigest()[:8]}",
             "metadata": metadata or {},
             "timestamp": datetime.utcnow().isoformat(),
+            # Include distributed metadata in result for tracing
+            "correlation_id": correlation_id,
+            "workflow_id": workflow_id,
+            "trace_id": trace_id,
         }
 
-        logger.info(f"[{session_id}] Stored {len(embeddings)} vectors successfully")
+        logger.info(
+            f"[session_id={session_id}] [correlation_id={correlation_id}] "
+            f"Stored {len(embeddings)} vectors successfully"
+        )
         return result
 
     except Exception as e:
-        logger.error(f"[{session_id}] Vector storage failed: {e}")
+        logger.error(
+            f"[session_id={session_id}] [correlation_id={correlation_id}] "
+            f"Vector storage failed: {e}"
+        )
         raise self.retry(exc=e)
 
 
@@ -218,6 +297,11 @@ def semantic_retrieval(
     session_id: str,
     top_k: int = 5,
     metadata: Optional[Dict[str, Any]] = None,
+    # Distributed metadata - optional but supported
+    correlation_id: Optional[str] = None,
+    workflow_id: Optional[str] = None,
+    trace_id: Optional[str] = None,
+    **kwargs,
 ) -> Dict[str, Any]:
     """
     Perform semantic search on stored vectors.
@@ -228,11 +312,18 @@ def semantic_retrieval(
         session_id: Session identifier
         top_k: Number of results to return
         metadata: Optional metadata
+        correlation_id: Optional correlation ID for distributed tracing
+        workflow_id: Optional workflow identifier
+        trace_id: Optional LangSmith trace ID
+        **kwargs: Additional keyword arguments for backward compatibility
 
     Returns:
         Search results
     """
-    logger.info(f"[{session_id}] Semantic search in {collection_name}: {query}")
+    logger.info(
+        f"[session_id={session_id}] [correlation_id={correlation_id}] "
+        f"[workflow_id={workflow_id}] Semantic search in {collection_name}: {query}"
+    )
 
     try:
         # In production, this would query ChromaDB or Qdrant
@@ -256,13 +347,23 @@ def semantic_retrieval(
             "results": results,
             "total_results": len(results),
             "metadata": metadata or {},
+            # Include distributed metadata in result for tracing
+            "correlation_id": correlation_id,
+            "workflow_id": workflow_id,
+            "trace_id": trace_id,
         }
 
-        logger.info(f"[{session_id}] Found {len(results)} results")
+        logger.info(
+            f"[session_id={session_id}] [correlation_id={correlation_id}] "
+            f"Found {len(results)} results"
+        )
         return result
 
     except Exception as e:
-        logger.error(f"[{session_id}] Semantic retrieval failed: {e}")
+        logger.error(
+            f"[session_id={session_id}] [correlation_id={correlation_id}] "
+            f"Semantic retrieval failed: {e}"
+        )
         raise self.retry(exc=e)
 
 
@@ -277,6 +378,11 @@ def delete_collection(
     self,
     collection_name: str,
     session_id: str,
+    # Distributed metadata - optional but supported
+    correlation_id: Optional[str] = None,
+    workflow_id: Optional[str] = None,
+    trace_id: Optional[str] = None,
+    **kwargs,
 ) -> Dict[str, Any]:
     """
     Delete a vector collection.
@@ -284,11 +390,18 @@ def delete_collection(
     Args:
         collection_name: Collection to delete
         session_id: Session identifier
+        correlation_id: Optional correlation ID for distributed tracing
+        workflow_id: Optional workflow identifier
+        trace_id: Optional LangSmith trace ID
+        **kwargs: Additional keyword arguments for backward compatibility
 
     Returns:
         Deletion result
     """
-    logger.info(f"[{session_id}] Deleting collection: {collection_name}")
+    logger.info(
+        f"[session_id={session_id}] [correlation_id={correlation_id}] "
+        f"[workflow_id={workflow_id}] Deleting collection: {collection_name}"
+    )
 
     try:
         result = {
@@ -296,18 +409,30 @@ def delete_collection(
             "session_id": session_id,
             "status": "completed",
             "deleted": True,
+            # Include distributed metadata in result for tracing
+            "correlation_id": correlation_id,
+            "workflow_id": workflow_id,
+            "trace_id": trace_id,
         }
 
-        logger.info(f"[{session_id}] Collection deleted")
+        logger.info(
+            f"[session_id={session_id}] [correlation_id={correlation_id}] Collection deleted"
+        )
         return result
 
     except Exception as e:
-        logger.error(f"[{session_id}] Collection deletion failed: {e}")
+        logger.error(
+            f"[session_id={session_id}] [correlation_id={correlation_id}] "
+            f"Collection deletion failed: {e}"
+        )
         return {
             "collection_name": collection_name,
             "session_id": session_id,
             "status": "failed",
             "error": str(e),
+            "correlation_id": correlation_id,
+            "workflow_id": workflow_id,
+            "trace_id": trace_id,
         }
 
 
@@ -323,6 +448,11 @@ def batch_embed(
     documents: List[Dict[str, Any]],
     session_id: str,
     model: str = "nomic-embed-text",
+    # Distributed metadata - optional but supported
+    correlation_id: Optional[str] = None,
+    workflow_id: Optional[str] = None,
+    trace_id: Optional[str] = None,
+    **kwargs,
 ) -> Dict[str, Any]:
     """
     Process multiple documents in batch.
@@ -331,11 +461,18 @@ def batch_embed(
         documents: List of documents with content and metadata
         session_id: Session identifier
         model: Embedding model
+        correlation_id: Optional correlation ID for distributed tracing
+        workflow_id: Optional workflow identifier
+        trace_id: Optional LangSmith trace ID
+        **kwargs: Additional keyword arguments for backward compatibility
 
     Returns:
         Batch processing results
     """
-    logger.info(f"[{session_id}] Batch embedding {len(documents)} documents")
+    logger.info(
+        f"[session_id={session_id}] [correlation_id={correlation_id}] "
+        f"[workflow_id={workflow_id}] Batch embedding {len(documents)} documents"
+    )
 
     try:
         processed = []
@@ -372,11 +509,21 @@ def batch_embed(
             "total_tokens": total_tokens,
             "model": model,
             "results": processed,
+            # Include distributed metadata in result for tracing
+            "correlation_id": correlation_id,
+            "workflow_id": workflow_id,
+            "trace_id": trace_id,
         }
 
-        logger.info(f"[{session_id}] Batch processed {len(documents)} documents")
+        logger.info(
+            f"[session_id={session_id}] [correlation_id={correlation_id}] "
+            f"Batch processed {len(documents)} documents"
+        )
         return result
 
     except Exception as e:
-        logger.error(f"[{session_id}] Batch embedding failed: {e}")
+        logger.error(
+            f"[session_id={session_id}] [correlation_id={correlation_id}] "
+            f"Batch embedding failed: {e}"
+        )
         raise self.retry(exc=e)

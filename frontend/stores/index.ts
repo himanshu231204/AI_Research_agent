@@ -11,6 +11,30 @@ import {
   Citation,
 } from '@/types';
 
+// Model types for model selection
+interface ModelInfo {
+  name: string;
+  provider: string;
+  model_type: string;
+  is_local: boolean;
+  available: boolean;
+  health_status: string;
+  latency_ms: number;
+  display_name: string;
+  icon: string;
+}
+
+interface ProviderStatus {
+  name: string;
+  provider_type: string;
+  status: string;
+  available: boolean;
+  models: string[];
+  latency_ms: number;
+  error?: string;
+  status_icon: string;
+}
+
 // UI Store
 interface UIStore extends UIState {
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
@@ -321,5 +345,74 @@ export const useWSStore = create<WSStore>()(
     setConnected: (connected) => set({ isConnected: connected }),
     setLastMessage: (message) => set({ lastMessage: message }),
     setConnectionError: (error) => set({ connectionError: error }),
+  }))
+);
+
+// Model Selection Store
+interface ModelSelectionStore {
+  // User selections
+  selectedProvider: string;
+  selectedModel: string;
+  routingMode: string;
+  
+  // Available models
+  localModels: ModelInfo[];
+  cloudModels: Record<string, ModelInfo[]>;
+  
+  // Provider status
+  providerStatuses: ProviderStatus[];
+  
+  // Active model info (resolved at runtime)
+  activeProvider: string;
+  activeModel: string;
+  
+  // Fallback tracking
+  fallbackOccurred: boolean;
+  fallbackReason: string | null;
+  
+  // Actions
+  setSelectedProvider: (provider: string) => void;
+  setSelectedModel: (model: string) => void;
+  setRoutingMode: (mode: string) => void;
+  setLocalModels: (models: ModelInfo[]) => void;
+  setCloudModels: (models: Record<string, ModelInfo[]>) => void;
+  setProviderStatuses: (statuses: ProviderStatus[]) => void;
+  setActiveModelInfo: (provider: string, model: string) => void;
+  setFallbackInfo: (occurred: boolean, reason: string | null) => void;
+  reset: () => void;
+}
+
+const initialModelSelectionState = {
+  selectedProvider: 'auto',
+  selectedModel: '',
+  routingMode: 'auto',
+  localModels: [],
+  cloudModels: {},
+  providerStatuses: [],
+  activeProvider: '',
+  activeModel: '',
+  fallbackOccurred: false,
+  fallbackReason: null,
+};
+
+export const useModelSelectionStore = create<ModelSelectionStore>()(
+  immer((set) => ({
+    ...initialModelSelectionState,
+    
+    setSelectedProvider: (provider) => set({ selectedProvider: provider }),
+    setSelectedModel: (model) => set({ selectedModel: model }),
+    setRoutingMode: (mode) => set({ routingMode: mode }),
+    setLocalModels: (models) => set({ localModels: models }),
+    setCloudModels: (models) => set({ cloudModels: models }),
+    setProviderStatuses: (statuses) => set({ providerStatuses: statuses }),
+    setActiveModelInfo: (provider, model) => set({ 
+      activeProvider: provider, 
+      activeModel: model 
+    }),
+    setFallbackInfo: (occurred, reason) => set({
+      fallbackOccurred: occurred,
+      fallbackReason: reason,
+    }),
+    reset: () => set(initialModelSelectionState),
   }))
 );

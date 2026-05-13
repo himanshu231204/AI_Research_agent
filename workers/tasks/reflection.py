@@ -27,6 +27,19 @@ class ReflectionTask(Task):
     retry_jitter = True
     max_retries = 2
 
+    def __call__(self, *args, **kwargs):
+        """Log task invocation with distributed metadata."""
+        correlation_id = kwargs.get("correlation_id", "unknown")
+        workflow_id = kwargs.get("workflow_id", "unknown")
+        trace_id = kwargs.get("trace_id", "unknown")
+
+        logger.info(
+            f"[correlation_id={correlation_id}] [workflow_id={workflow_id}] "
+            f"[trace_id={trace_id}] Task {self.name} invoked"
+        )
+
+        return super().__call__(*args, **kwargs)
+
 
 @celery_app.task(
     bind=True,
@@ -40,6 +53,12 @@ def analyze_findings(
     findings: List[Dict[str, Any]],
     query: str,
     session_id: str,
+    # Distributed metadata - optional but supported
+    correlation_id: Optional[str] = None,
+    workflow_id: Optional[str] = None,
+    trace_id: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+    **kwargs,
 ) -> Dict[str, Any]:
     """
     Analyze research findings for quality and completeness.
@@ -48,11 +67,19 @@ def analyze_findings(
         findings: List of research findings
         query: Original research query
         session_id: Session identifier
+        correlation_id: Optional correlation ID for distributed tracing
+        workflow_id: Optional workflow identifier
+        trace_id: Optional LangSmith trace ID
+        metadata: Optional additional metadata
+        **kwargs: Additional keyword arguments for backward compatibility
 
     Returns:
         Analysis results
     """
-    logger.info(f"[{session_id}] Analyzing {len(findings)} findings")
+    logger.info(
+        f"[session_id={session_id}] [correlation_id={correlation_id}] "
+        f"[workflow_id={workflow_id}] Analyzing {len(findings)} findings"
+    )
 
     try:
         # In production, this would use LLM for analysis
@@ -71,15 +98,24 @@ def analyze_findings(
             "status": "completed",
             "analysis": analysis,
             "quality_flags": _detect_quality_issues(findings),
+            # Include distributed metadata in result for tracing
+            "correlation_id": correlation_id,
+            "workflow_id": workflow_id,
+            "trace_id": trace_id,
+            "metadata": metadata or {},
         }
 
         logger.info(
-            f"[{session_id}] Analysis complete with quality score {analysis['quality_score']}"
+            f"[session_id={session_id}] [correlation_id={correlation_id}] "
+            f"Analysis complete with quality score {analysis['quality_score']}"
         )
         return result
 
     except Exception as e:
-        logger.error(f"[{session_id}] Finding analysis failed: {e}")
+        logger.error(
+            f"[session_id={session_id}] [correlation_id={correlation_id}] "
+            f"Finding analysis failed: {e}"
+        )
         raise self.retry(exc=e)
 
 
@@ -95,6 +131,12 @@ def detect_hallucinations(
     content: str,
     sources: List[str],
     session_id: str,
+    # Distributed metadata - optional but supported
+    correlation_id: Optional[str] = None,
+    workflow_id: Optional[str] = None,
+    trace_id: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+    **kwargs,
 ) -> Dict[str, Any]:
     """
     Detect potential hallucinations in content.
@@ -103,11 +145,19 @@ def detect_hallucinations(
         content: Content to validate
         sources: List of sources for verification
         session_id: Session identifier
+        correlation_id: Optional correlation ID for distributed tracing
+        workflow_id: Optional workflow identifier
+        trace_id: Optional LangSmith trace ID
+        metadata: Optional additional metadata
+        **kwargs: Additional keyword arguments for backward compatibility
 
     Returns:
         Hallucination detection results
     """
-    logger.info(f"[{session_id}] Detecting hallucinations in content")
+    logger.info(
+        f"[session_id={session_id}] [correlation_id={correlation_id}] "
+        f"[workflow_id={workflow_id}] Detecting hallucinations in content"
+    )
 
     try:
         # In production, this would use fact-checking LLM
@@ -139,13 +189,24 @@ def detect_hallucinations(
             "hallucinations": hallucinations,
             "confidence": confidence,
             "content_length": len(content),
+            # Include distributed metadata in result for tracing
+            "correlation_id": correlation_id,
+            "workflow_id": workflow_id,
+            "trace_id": trace_id,
+            "metadata": metadata or {},
         }
 
-        logger.info(f"[{session_id}] Hallucination check complete: {len(hallucinations)} found")
+        logger.info(
+            f"[session_id={session_id}] [correlation_id={correlation_id}] "
+            f"Hallucination check complete: {len(hallucinations)} found"
+        )
         return result
 
     except Exception as e:
-        logger.error(f"[{session_id}] Hallucination detection failed: {e}")
+        logger.error(
+            f"[session_id={session_id}] [correlation_id={correlation_id}] "
+            f"Hallucination detection failed: {e}"
+        )
         raise self.retry(exc=e)
 
 
@@ -161,6 +222,12 @@ def identify_gaps(
     findings: List[Dict[str, Any]],
     query: str,
     session_id: str,
+    # Distributed metadata - optional but supported
+    correlation_id: Optional[str] = None,
+    workflow_id: Optional[str] = None,
+    trace_id: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+    **kwargs,
 ) -> Dict[str, Any]:
     """
     Identify gaps in research coverage.
@@ -169,11 +236,19 @@ def identify_gaps(
         findings: Current research findings
         query: Original research query
         session_id: Session identifier
+        correlation_id: Optional correlation ID for distributed tracing
+        workflow_id: Optional workflow identifier
+        trace_id: Optional LangSmith trace ID
+        metadata: Optional additional metadata
+        **kwargs: Additional keyword arguments for backward compatibility
 
     Returns:
         Gap analysis results
     """
-    logger.info(f"[{session_id}] Identifying research gaps")
+    logger.info(
+        f"[session_id={session_id}] [correlation_id={correlation_id}] "
+        f"[workflow_id={workflow_id}] Identifying research gaps"
+    )
 
     try:
         # Analyze findings to identify gaps
@@ -220,13 +295,24 @@ def identify_gaps(
             "gaps": gaps,
             "gap_count": len(gaps),
             "recommendations": [g["description"] for g in gaps],
+            # Include distributed metadata in result for tracing
+            "correlation_id": correlation_id,
+            "workflow_id": workflow_id,
+            "trace_id": trace_id,
+            "metadata": metadata or {},
         }
 
-        logger.info(f"[{session_id}] Identified {len(gaps)} research gaps")
+        logger.info(
+            f"[session_id={session_id}] [correlation_id={correlation_id}] "
+            f"Identified {len(gaps)} research gaps"
+        )
         return result
 
     except Exception as e:
-        logger.error(f"[{session_id}] Gap identification failed: {e}")
+        logger.error(
+            f"[session_id={session_id}] [correlation_id={correlation_id}] "
+            f"Gap identification failed: {e}"
+        )
         raise self.retry(exc=e)
 
 
@@ -241,6 +327,12 @@ def validate_sources(
     self,
     sources: List[str],
     session_id: str,
+    # Distributed metadata - optional but supported
+    correlation_id: Optional[str] = None,
+    workflow_id: Optional[str] = None,
+    trace_id: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+    **kwargs,
 ) -> Dict[str, Any]:
     """
     Validate the credibility and relevance of sources.
@@ -248,11 +340,19 @@ def validate_sources(
     Args:
         sources: List of source URLs
         session_id: Session identifier
+        correlation_id: Optional correlation ID for distributed tracing
+        workflow_id: Optional workflow identifier
+        trace_id: Optional LangSmith trace ID
+        metadata: Optional additional metadata
+        **kwargs: Additional keyword arguments for backward compatibility
 
     Returns:
         Validation results
     """
-    logger.info(f"[{session_id}] Validating {len(sources)} sources")
+    logger.info(
+        f"[session_id={session_id}] [correlation_id={correlation_id}] "
+        f"[workflow_id={workflow_id}] Validating {len(sources)} sources"
+    )
 
     try:
         validated = []
@@ -296,13 +396,24 @@ def validate_sources(
             "sources": validated,
             "average_trust_score": sum(s["trust_score"] for s in validated)
             / max(len(validated), 1),
+            # Include distributed metadata in result for tracing
+            "correlation_id": correlation_id,
+            "workflow_id": workflow_id,
+            "trace_id": trace_id,
+            "metadata": metadata or {},
         }
 
-        logger.info(f"[{session_id}] Source validation complete: {len(validated)} valid")
+        logger.info(
+            f"[session_id={session_id}] [correlation_id={correlation_id}] "
+            f"Source validation complete: {len(validated)} valid"
+        )
         return result
 
     except Exception as e:
-        logger.error(f"[{session_id}] Source validation failed: {e}")
+        logger.error(
+            f"[session_id={session_id}] [correlation_id={correlation_id}] "
+            f"Source validation failed: {e}"
+        )
         raise self.retry(exc=e)
 
 
@@ -318,6 +429,12 @@ def critique_report(
     report: str,
     query: str,
     session_id: str,
+    # Distributed metadata - optional but supported
+    correlation_id: Optional[str] = None,
+    workflow_id: Optional[str] = None,
+    trace_id: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+    **kwargs,
 ) -> Dict[str, Any]:
     """
     Provide critical feedback on research report.
@@ -326,11 +443,19 @@ def critique_report(
         report: Research report content
         query: Original research query
         session_id: Session identifier
+        correlation_id: Optional correlation ID for distributed tracing
+        workflow_id: Optional workflow identifier
+        trace_id: Optional LangSmith trace ID
+        metadata: Optional additional metadata
+        **kwargs: Additional keyword arguments for backward compatibility
 
     Returns:
         Critique results
     """
-    logger.info(f"[{session_id}] Critiquing research report")
+    logger.info(
+        f"[session_id={session_id}] [correlation_id={correlation_id}] "
+        f"[workflow_id={workflow_id}] Critiquing research report"
+    )
 
     try:
         # In production, this would use a critic LLM
@@ -385,13 +510,24 @@ def critique_report(
             "overall_assessment": "The report provides a good foundation but could be improved with more depth and citations."
             if quality_score > 0.7
             else "The report needs significant improvements to meet quality standards.",
+            # Include distributed metadata in result for tracing
+            "correlation_id": correlation_id,
+            "workflow_id": workflow_id,
+            "trace_id": trace_id,
+            "metadata": metadata or {},
         }
 
-        logger.info(f"[{session_id}] Report critique complete: score {quality_score}")
+        logger.info(
+            f"[session_id={session_id}] [correlation_id={correlation_id}] "
+            f"Report critique complete: score {quality_score}"
+        )
         return result
 
     except Exception as e:
-        logger.error(f"[{session_id}] Report critique failed: {e}")
+        logger.error(
+            f"[session_id={session_id}] [correlation_id={correlation_id}] "
+            f"Report critique failed: {e}"
+        )
         raise self.retry(exc=e)
 
 

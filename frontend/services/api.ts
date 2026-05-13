@@ -209,23 +209,203 @@ export const modelsApi = {
     const response = await fetch(`${API_URL}${API_PREFIX}/models/gpu-status`);
     return handleResponse(response);
   },
+
+  // Model Selection API
+  async getAllModels(): Promise<{
+    local: Array<{
+      name: string;
+      provider: string;
+      model_type: string;
+      is_local: boolean;
+      available: boolean;
+      health_status: string;
+      latency_ms: number;
+      display_name: string;
+      icon: string;
+    }>;
+    cloud: Record<string, Array<{
+      name: string;
+      provider: string;
+      model_type: string;
+      is_local: boolean;
+      available: boolean;
+      health_status: string;
+      latency_ms: number;
+      display_name: string;
+      icon: string;
+    }>>;
+    timestamp: string;
+  }> {
+    const response = await fetch(`${API_URL}${API_PREFIX}/models`);
+    return handleResponse(response);
+  },
+
+  async getLocalModels(): Promise<{
+    models: Array<{
+      name: string;
+      provider: string;
+      model_type: string;
+      is_local: boolean;
+      available: boolean;
+      health_status: string;
+      latency_ms: number;
+      display_name: string;
+      icon: string;
+    }>;
+    count: number;
+    provider: string;
+  }> {
+    const response = await fetch(`${API_URL}${API_PREFIX}/models/local`);
+    return handleResponse(response);
+  },
+
+  async getCloudModels(): Promise<{
+    providers: Record<string, Array<{
+      name: string;
+      provider: string;
+      model_type: string;
+      is_local: boolean;
+      available: boolean;
+      health_status: string;
+      latency_ms: number;
+      display_name: string;
+      icon: string;
+    }>>;
+  }> {
+    const response = await fetch(`${API_URL}${API_PREFIX}/models/cloud`);
+    return handleResponse(response);
+  },
+
+  async getProviderStatus(): Promise<{
+    providers: Array<{
+      name: string;
+      provider_type: string;
+      status: string;
+      available: boolean;
+      models: string[];
+      latency_ms: number;
+      error?: string;
+      last_check?: string;
+      status_icon: string;
+    }>;
+  }> {
+    const response = await fetch(`${API_URL}${API_PREFIX}/models/providers/status`);
+    return handleResponse(response);
+  },
+
+  async selectModel(sessionId: string, provider: string, model: string, routingMode: string): Promise<{
+    success: boolean;
+    provider: string;
+    model: string;
+    routing_mode: string;
+    message: string;
+    error?: string;
+  }> {
+    const response = await fetch(`${API_URL}${API_PREFIX}/models/select`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        session_id: sessionId,
+        provider,
+        model,
+        routing_mode: routingMode,
+      }),
+    });
+    return handleResponse(response);
+  },
+
+  async getModelSelection(sessionId: string): Promise<{
+    session_id: string;
+    selected_provider: string;
+    selected_model: string;
+    routing_mode: string;
+    active_provider: string;
+    active_model: string;
+  }> {
+    const response = await fetch(`${API_URL}${API_PREFIX}/models/selection/${sessionId}`);
+    return handleResponse(response);
+  },
+
+  async refreshLocalModels(): Promise<{
+    success: boolean;
+    models: string[];
+    count: number;
+  }> {
+    const response = await fetch(`${API_URL}${API_PREFIX}/models/refresh-local`, {
+      method: 'POST',
+    });
+    return handleResponse(response);
+  },
 };
 
-// Queue API (placeholder - would need backend implementation)
+// Queue API
 export const queueApi = {
   async getQueues(): Promise<QueueInfo[]> {
-    // Placeholder - would call actual queue monitoring endpoint
-    return [
-      { name: 'high_priority', depth: 0, active_workers: 2, completed_tasks: 0, failed_tasks: 0 },
-      { name: 'research', depth: 0, active_workers: 4, completed_tasks: 0, failed_tasks: 0 },
-      { name: 'browser', depth: 0, active_workers: 2, completed_tasks: 0, failed_tasks: 0 },
-      { name: 'dead_letter', depth: 0, active_workers: 0, completed_tasks: 0, failed_tasks: 0 },
-    ];
+    try {
+      const response = await fetch(`${API_URL}${API_PREFIX}/health/queues`);
+      const data = await handleResponse<{
+        timestamp: string;
+        queues: Array<{
+          name: string;
+          status: string;
+          active_tasks: number;
+          pending_tasks: number;
+          worker_count: number;
+        }>;
+        total_queues: number;
+      }>(response);
+      
+      return data.queues.map((q) => ({
+        name: q.name,
+        depth: q.pending_tasks,
+        active_workers: q.worker_count,
+        completed_tasks: 0,
+        failed_tasks: 0,
+      }));
+    } catch {
+      // Return placeholder only if API fails
+      console.warn('Queue API unavailable, using fallback data');
+      return [
+        { name: 'high_priority', depth: 0, active_workers: 2, completed_tasks: 0, failed_tasks: 0 },
+        { name: 'research', depth: 0, active_workers: 4, completed_tasks: 0, failed_tasks: 0 },
+        { name: 'browser', depth: 0, active_workers: 2, completed_tasks: 0, failed_tasks: 0 },
+        { name: 'dead_letter', depth: 0, active_workers: 0, completed_tasks: 0, failed_tasks: 0 },
+      ];
+    }
   },
 
   async getWorkers(): Promise<WorkerInfo[]> {
-    // Placeholder - would call actual worker monitoring endpoint
-    return [];
+    try {
+      const response = await fetch(`${API_URL}${API_PREFIX}/health/workers`);
+      const data = await handleResponse<{
+        timestamp: string;
+        total_workers: number;
+        workers: Array<{
+          name: string;
+          status: string;
+          active_tasks: number;
+          completed_tasks: number;
+          failed_tasks: number;
+          uptime_seconds: number;
+          last_heartbeat: string | null;
+        }>;
+        queues: Array<unknown>;
+        overall_status: string;
+      }>(response);
+      
+      return data.workers.map((w) => ({
+        id: w.name,
+        name: w.name,
+        status: w.status as 'online' | 'busy' | 'offline' | 'error',
+        current_task: w.active_tasks > 0 ? 'processing' : 'idle',
+        started_at: w.last_heartbeat || new Date().toISOString(),
+        tasks_completed: w.completed_tasks,
+        tasks_failed: w.failed_tasks,
+      }));
+    } catch {
+      console.warn('Worker API unavailable');
+      return [];
+    }
   },
 };
 
@@ -249,7 +429,56 @@ export const sessionsApi = {
 // Health API
 export const healthApi = {
   async check(): Promise<{ status: string; timestamp: string }> {
-    const response = await fetch(`${API_URL}/health`);
+    const response = await fetch(`${API_URL}${API_PREFIX}/health`);
+    return handleResponse(response);
+  },
+  
+  async live(): Promise<{ status: string }> {
+    const response = await fetch(`${API_URL}${API_PREFIX}/health/live`);
+    return handleResponse(response);
+  },
+  
+  async ready(): Promise<{ ready: boolean; services: Record<string, unknown> }> {
+    const response = await fetch(`${API_URL}${API_PREFIX}/health/ready`);
+    return handleResponse(response);
+  },
+  
+  async workers(): Promise<{
+    timestamp: string;
+    total_workers: number;
+    workers: Array<{
+      name: string;
+      status: string;
+      active_tasks: number;
+      completed_tasks: number;
+      failed_tasks: number;
+      uptime_seconds: number;
+    }>;
+    queues: Array<{
+      name: string;
+      status: string;
+      active_tasks: number;
+      pending_tasks: number;
+      worker_count: number;
+    }>;
+    overall_status: string;
+  }> {
+    const response = await fetch(`${API_URL}${API_PREFIX}/health/workers`);
+    return handleResponse(response);
+  },
+  
+  async queues(): Promise<{
+    timestamp: string;
+    queues: Array<{
+      name: string;
+      status: string;
+      active_tasks: number;
+      pending_tasks: number;
+      worker_count: number;
+    }>;
+    total_queues: number;
+  }> {
+    const response = await fetch(`${API_URL}${API_PREFIX}/health/queues`);
     return handleResponse(response);
   },
 };

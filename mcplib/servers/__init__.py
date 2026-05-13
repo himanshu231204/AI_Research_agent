@@ -1,18 +1,13 @@
 """
 MCP Servers - Server implementations for MCP protocol
+
+NOTE: Custom MCP servers removed in Phase 1 refactoring.
+Using built-in MCP servers via config/mcp_servers.json
 """
 
 from .base import MCPServer, ServerConfig
-from .browser_server import BrowserMCPServer
-from .github_server import GitHubMCPServer
-from .filesystem_server import FilesystemMCPServer
-from .terminal_server import TerminalMCPServer
 
 __all__ = [
     "MCPServer",
     "ServerConfig",
-    "BrowserMCPServer",
-    "GitHubMCPServer",
-    "FilesystemMCPServer",
-    "TerminalMCPServer",
 ]

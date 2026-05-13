@@ -24,6 +24,16 @@ class RegistryConfig:
     cache_ttl: int = 300
     max_tools: int = 1000
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "RegistryConfig":
+        """Create config from dictionary (for JSON config compatibility)"""
+        return cls(
+            enable_auto_discovery=data.get("enable_auto_discovery", True),
+            discovery_interval=data.get("discovery_interval", 60),
+            cache_ttl=data.get("cache_ttl", 300),
+            max_tools=data.get("max_tools", 1000),
+        )
+
 
 class ToolRegistry:
     """Registry for managing tools across MCP servers"""
@@ -238,3 +248,324 @@ class ToolRegistry:
                 break
             except Exception as e:
                 logger.error(f"Error in discovery: {e}")
+
+    async def load_from_config(self, server_configs: List[Dict[str, Any]]) -> None:
+        """
+        Load tools from JSON configuration
+
+        Args:
+            server_configs: List of server configuration dictionaries from JSON config
+        """
+        from mcplib.schemas.tool import ToolParameter, ParameterType
+
+        async with self._lock:
+            for server_config in server_configs:
+                server_name = server_config.get("name", "")
+                enabled = server_config.get("enabled", True)
+                capabilities = server_config.get("capabilities", [])
+
+                if not enabled:
+                    logger.info(f"Skipping disabled server: {server_name}")
+                    continue
+
+                # Create tools from capabilities
+                for capability in capabilities:
+                    tool = self._create_tool_from_capability(capability, server_name, server_config)
+                    if tool:
+                        self._tools[tool.name] = tool
+                        self._tool_metadata[tool.name] = {
+                            "registered_at": datetime.utcnow(),
+                            "last_used": None,
+                            "use_count": 0,
+                            "metadata": {"server": server_name, "capability": capability},
+                        }
+
+                        # Update categories
+                        if tool.category not in self._categories:
+                            self._categories[tool.category] = []
+                        if tool.name not in self._categories[tool.category]:
+                            self._categories[tool.category].append(tool.name)
+
+                        logger.info(f"Registered tool: {tool.name} from {server_name}")
+
+        logger.info(f"Loaded {len(self._tools)} tools from configuration")
+
+    def _create_tool_from_capability(
+        self, capability: str, server_name: str, server_config: Dict[str, Any]
+    ) -> Optional[Tool]:
+        """Create a Tool from a capability string"""
+        from mcplib.schemas.tool import ToolParameter, ParameterType
+
+        # Map capability names to tool definitions
+        tool_definitions = {
+            # Browser tools
+            "browser_navigate": {
+                "description": "Navigate to a URL in the browser",
+                "category": ToolCategory.BROWSER,
+                "parameters": [
+                    ToolParameter(
+                        name="url",
+                        param_type=ParameterType.STRING,
+                        description="URL to navigate to",
+                        required=True,
+                    ),
+                    ToolParameter(
+                        name="wait_until",
+                        param_type=ParameterType.STRING,
+                        description="Wait until DOM is in specific state",
+                        required=False,
+                        default="load",
+                    ),
+                ],
+            },
+            "browser_screenshot": {
+                "description": "Take a screenshot of the current page",
+                "category": ToolCategory.BROWSER,
+                "parameters": [
+                    ToolParameter(
+                        name="full_page",
+                        param_type=ParameterType.BOOLEAN,
+                        description="Capture full page or just viewport",
+                        required=False,
+                        default=False,
+                    ),
+                ],
+            },
+            "browser_click": {
+                "description": "Click an element on the page",
+                "category": ToolCategory.BROWSER,
+                "parameters": [
+                    ToolParameter(
+                        name="selector",
+                        param_type=ParameterType.STRING,
+                        description="CSS selector for the element",
+                        required=True,
+                    ),
+                ],
+            },
+            "browser_type": {
+                "description": "Type text into an input field",
+                "category": ToolCategory.BROWSER,
+                "parameters": [
+                    ToolParameter(
+                        name="selector",
+                        param_type=ParameterType.STRING,
+                        description="CSS selector for the input",
+                        required=True,
+                    ),
+                    ToolParameter(
+                        name="text",
+                        param_type=ParameterType.STRING,
+                        description="Text to type",
+                        required=True,
+                    ),
+                ],
+            },
+            "browser_evaluate": {
+                "description": "Execute JavaScript in the browser context",
+                "category": ToolCategory.BROWSER,
+                "parameters": [
+                    ToolParameter(
+                        name="script",
+                        param_type=ParameterType.STRING,
+                        description="JavaScript code to execute",
+                        required=True,
+                    ),
+                ],
+            },
+            # GitHub tools
+            "github_search_repos": {
+                "description": "Search GitHub repositories",
+                "category": ToolCategory.GITHUB,
+                "parameters": [
+                    ToolParameter(
+                        name="query",
+                        param_type=ParameterType.STRING,
+                        description="Search query",
+                        required=True,
+                    ),
+                    ToolParameter(
+                        name="sort",
+                        param_type=ParameterType.STRING,
+                        description="Sort by",
+                        required=False,
+                        default="stars",
+                    ),
+                ],
+            },
+            "github_get_file": {
+                "description": "Get file contents from a repository",
+                "category": ToolCategory.GITHUB,
+                "parameters": [
+                    ToolParameter(
+                        name="owner",
+                        param_type=ParameterType.STRING,
+                        description="Repository owner",
+                        required=True,
+                    ),
+                    ToolParameter(
+                        name="repo",
+                        param_type=ParameterType.STRING,
+                        description="Repository name",
+                        required=True,
+                    ),
+                    ToolParameter(
+                        name="path",
+                        param_type=ParameterType.STRING,
+                        description="File path",
+                        required=True,
+                    ),
+                ],
+            },
+            "github_list_files": {
+                "description": "List files in a repository directory",
+                "category": ToolCategory.GITHUB,
+                "parameters": [
+                    ToolParameter(
+                        name="owner",
+                        param_type=ParameterType.STRING,
+                        description="Repository owner",
+                        required=True,
+                    ),
+                    ToolParameter(
+                        name="repo",
+                        param_type=ParameterType.STRING,
+                        description="Repository name",
+                        required=True,
+                    ),
+                    ToolParameter(
+                        name="path",
+                        param_type=ParameterType.STRING,
+                        description="Directory path",
+                        required=False,
+                        default="",
+                    ),
+                ],
+            },
+            # Filesystem tools
+            "filesystem_read": {
+                "description": "Read file contents",
+                "category": ToolCategory.FILESYSTEM,
+                "parameters": [
+                    ToolParameter(
+                        name="path",
+                        param_type=ParameterType.STRING,
+                        description="File path",
+                        required=True,
+                    ),
+                ],
+            },
+            "filesystem_write": {
+                "description": "Write content to a file",
+                "category": ToolCategory.FILESYSTEM,
+                "parameters": [
+                    ToolParameter(
+                        name="path",
+                        param_type=ParameterType.STRING,
+                        description="File path",
+                        required=True,
+                    ),
+                    ToolParameter(
+                        name="content",
+                        param_type=ParameterType.STRING,
+                        description="Content to write",
+                        required=True,
+                    ),
+                ],
+            },
+            "filesystem_list": {
+                "description": "List files in a directory",
+                "category": ToolCategory.FILESYSTEM,
+                "parameters": [
+                    ToolParameter(
+                        name="path",
+                        param_type=ParameterType.STRING,
+                        description="Directory path",
+                        required=True,
+                    ),
+                ],
+            },
+            # Terminal tools
+            "terminal_execute": {
+                "description": "Execute a terminal command",
+                "category": ToolCategory.TERMINAL,
+                "parameters": [
+                    ToolParameter(
+                        name="command",
+                        param_type=ParameterType.STRING,
+                        description="Command to execute",
+                        required=True,
+                    ),
+                    ToolParameter(
+                        name="cwd",
+                        param_type=ParameterType.STRING,
+                        description="Working directory",
+                        required=False,
+                    ),
+                ],
+            },
+            # Web search tools
+            "web_search": {
+                "description": "Perform a web search and return structured results",
+                "category": ToolCategory.SEARCH,
+                "parameters": [
+                    ToolParameter(
+                        name="query",
+                        param_type=ParameterType.STRING,
+                        description="Search query string",
+                        required=True,
+                    ),
+                    ToolParameter(
+                        name="num_results",
+                        param_type=ParameterType.INTEGER,
+                        description="Number of results to return",
+                        required=False,
+                        default=5,
+                    ),
+                ],
+            },
+            "web_open": {
+                "description": "Open a URL and return page metadata/content",
+                "category": ToolCategory.SEARCH,
+                "parameters": [
+                    ToolParameter(
+                        name="url",
+                        param_type=ParameterType.STRING,
+                        description="URL to open",
+                        required=True,
+                    ),
+                    ToolParameter(
+                        name="timeout",
+                        param_type=ParameterType.INTEGER,
+                        description="Request timeout in seconds",
+                        required=False,
+                        default=10,
+                    ),
+                ],
+            },
+        }
+
+        definition = tool_definitions.get(capability)
+        if not definition:
+            logger.warning(f"Unknown capability: {capability} - creating generic tool entry")
+            # Create a generic tool for unknown/test capabilities so tests and configs
+            # that reference arbitrary capability names (e.g., tool1) still work.
+            return Tool(
+                name=capability,
+                description=f"Generic tool for capability {capability}",
+                category=ToolCategory.CUSTOM,
+                parameters=(),
+                server_name=server_name,
+                timeout=server_config.get("timeout", 30),
+            )
+
+        timeout = server_config.get("timeout", 30)
+
+        return Tool(
+            name=capability,
+            description=definition["description"],
+            category=definition["category"],
+            parameters=tuple(definition["parameters"]),
+            server_name=server_name,
+            timeout=timeout,
+        )

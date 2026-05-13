@@ -140,6 +140,34 @@ class OllamaProvider(LLMProvider):
             )
         return self._client
 
+    @staticmethod
+    def _is_cloud_model(model_name: str) -> bool:
+        """Return True when the model looks like an Ollama cloud alias."""
+        normalized = model_name.lower()
+        return normalized.endswith("-cloud") or normalized.endswith(":cloud") or ":cloud" in normalized
+
+    def _select_available_model(self, requested_model: str, available_models: List[str]) -> str:
+        """Choose the best installed model for a request."""
+        if not available_models:
+            return requested_model
+
+        exact_matches = [
+            model_name
+            for model_name in available_models
+            if model_name == requested_model or model_name.startswith(f"{requested_model}:")
+        ]
+        if exact_matches:
+            return exact_matches[0]
+
+        local_models = [model_name for model_name in available_models if not self._is_cloud_model(model_name)]
+        return local_models[0] if local_models else available_models[0]
+
+    async def _resolve_model_name(self, requested_model: Optional[str] = None) -> str:
+        """Resolve a configured model to one that is actually installed."""
+        model_name = requested_model or self.config.default_model
+        available_models = await self.get_available_models()
+        return self._select_available_model(model_name, available_models)
+
     async def generate(
         self,
         prompt: str,
@@ -165,9 +193,10 @@ class OllamaProvider(LLMProvider):
 
         async with self._semaphore:
             client = await self._get_client()
+            model_name = await self._resolve_model_name(self.config.default_model)
 
             payload: Dict[str, Any] = {
-                "model": self.config.default_model,
+                "model": model_name,
                 "prompt": prompt,
                 "stream": False,
                 "options": {
@@ -195,7 +224,7 @@ class OllamaProvider(LLMProvider):
 
                 return LLMResponse(
                     content=result.get("response", ""),
-                    model=self.config.default_model,
+                    model=model_name,
                     provider="ollama",
                     latency_ms=latency_ms,
                     raw_response=result,
@@ -245,9 +274,10 @@ class OllamaProvider(LLMProvider):
 
         async with self._semaphore:
             client = await self._get_client()
+            model_name = await self._resolve_model_name(self.config.default_model)
 
             payload: Dict[str, Any] = {
-                "model": self.config.default_model,
+                "model": model_name,
                 "messages": messages,
                 "stream": False,
                 "options": {
@@ -282,7 +312,7 @@ class OllamaProvider(LLMProvider):
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
                     total_tokens=prompt_tokens + completion_tokens,
-                    model=self.config.default_model,
+                    model=model_name,
                     provider="ollama",
                     finish_reason=result.get("done_reason", ""),
                     latency_ms=latency_ms,
@@ -321,9 +351,10 @@ class OllamaProvider(LLMProvider):
 
         async with self._semaphore:
             client = await self._get_client()
+            model_name = await self._resolve_model_name(self.config.default_model)
 
             payload: Dict[str, Any] = {
-                "model": self.config.default_model,
+                "model": model_name,
                 "messages": messages,
                 "stream": True,
                 "options": {
@@ -358,7 +389,7 @@ class OllamaProvider(LLMProvider):
                             yield StreamingChunk(
                                 content=accumulated_content,
                                 delta="",
-                                model=self.config.default_model,
+                                model=model_name,
                                 provider="ollama",
                                 index=index,
                                 finish_reason=finish_reason,
@@ -374,7 +405,7 @@ class OllamaProvider(LLMProvider):
                             yield StreamingChunk(
                                 content=accumulated_content,
                                 delta=delta,
-                                model=self.config.default_model,
+                                model=model_name,
                                 provider="ollama",
                                 index=index,
                             )

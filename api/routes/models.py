@@ -7,6 +7,14 @@ Endpoints:
 - POST /models/test - Test a model
 - GET /telemetry/models - Get model telemetry
 - GET /telemetry/costs - Get cost telemetry
+
+Model Selection Endpoints:
+- GET /models - Get all available models (local + cloud)
+- GET /models/local - Get local Ollama models
+- GET /models/cloud - Get cloud models by provider
+- GET /providers/status - Get provider health status
+- POST /models/select - Select model for session
+- GET /models/selection/{session_id} - Get current selection
 """
 
 import logging
@@ -23,6 +31,13 @@ from models.routing.router import get_model_router, ModelRouter, TaskType
 from models.routing.gpu_scheduler import get_gpu_monitor, get_health_monitor
 from models.routing.telemetry import get_telemetry_collector
 from models.routing.cost_optimizer import get_cost_optimizer, CostBudget
+from models.registry import (
+    get_model_registry,
+    ModelRegistry,
+    RoutingMode,
+    ModelInfo,
+    ProviderStatus as RegistryProviderStatus,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +133,57 @@ class CostResponse(BaseModel):
     total_tokens: int
     by_provider: Dict[str, float]
     by_model: Dict[str, float]
+
+
+# Model Selection Models
+
+
+class ModelSelectionRequest(BaseModel):
+    """Request to select a model for a session."""
+
+    session_id: str
+    provider: str = "auto"  # "auto", "ollama", "openai", "anthropic", "google", "groq"
+    model: str = ""
+    routing_mode: str = "auto"  # "auto", "local_only", "cloud_only", "hybrid"
+
+
+class ModelSelectionResponse(BaseModel):
+    """Response from model selection."""
+
+    success: bool
+    provider: str
+    model: str
+    routing_mode: str
+    message: str
+    error: Optional[str] = None
+
+
+class ModelListResponse(BaseModel):
+    """Response containing all available models."""
+
+    local: List[Dict[str, Any]]
+    cloud: Dict[str, List[Dict[str, Any]]]
+    timestamp: str
+
+
+class LocalModelsResponse(BaseModel):
+    """Response for local models."""
+
+    models: List[Dict[str, Any]]
+    count: int
+    provider: str = "ollama"
+
+
+class CloudModelsResponse(BaseModel):
+    """Response for cloud models."""
+
+    providers: Dict[str, List[Dict[str, Any]]]
+
+
+class ProviderStatusResponse(BaseModel):
+    """Response for provider status."""
+
+    providers: List[Dict[str, Any]]
 
 
 # Endpoints
@@ -475,3 +541,217 @@ async def get_gpu_status():
             "display_status": "GPU Status Error",
             "display_icon": "error",
         }
+
+
+# Model Selection Endpoints
+
+
+@router.get("", response_model=ModelListResponse)
+async def get_all_models():
+    """
+    Get all available models (local + cloud).
+
+    Returns:
+        All available models with metadata
+    """
+    registry = get_model_registry()
+    models = await registry.get_available_models()
+
+    return ModelListResponse(**models)
+
+
+@router.get("/local", response_model=LocalModelsResponse)
+async def get_local_models():
+    """
+    Get dynamically discovered local Ollama models.
+
+    Uses Ollama's /api/tags endpoint to discover installed models.
+    No hardcoded model lists.
+
+    Returns:
+        List of available local models
+    """
+    registry = get_model_registry()
+    models = await registry.get_local_models()
+
+    return LocalModelsResponse(
+        models=[
+            {
+                "name": m.name,
+                "provider": m.provider,
+                "model_type": m.model_type.value,
+                "is_local": m.is_local,
+                "available": m.available,
+                "health_status": m.health_status,
+                "latency_ms": m.latency_ms,
+                "display_name": m.display_name,
+                "icon": m.icon,
+            }
+            for m in models
+        ],
+        count=len(models),
+    )
+
+
+@router.get("/cloud", response_model=CloudModelsResponse)
+async def get_cloud_models():
+    """
+    Get available cloud models by provider.
+
+    Returns:
+        Dict of provider -> models
+    """
+    registry = get_model_registry()
+    cloud_models = await registry.get_cloud_models()
+
+    return CloudModelsResponse(
+        providers={
+            provider: [
+                {
+                    "name": m.name,
+                    "provider": m.provider,
+                    "model_type": m.model_type.value,
+                    "is_local": m.is_local,
+                    "available": m.available,
+                    "health_status": m.health_status,
+                    "latency_ms": m.latency_ms,
+                    "display_name": m.display_name,
+                    "icon": m.icon,
+                }
+                for m in models
+            ]
+            for provider, models in cloud_models.items()
+        }
+    )
+
+
+@router.get("/providers/status", response_model=ProviderStatusResponse)
+async def get_providers_status():
+    """
+    Get health status of all providers.
+
+    Returns:
+        List of provider statuses with health indicators
+    """
+    registry = get_model_registry()
+    statuses = await registry.get_provider_status()
+
+    return ProviderStatusResponse(
+        providers=[
+            {
+                "name": s.name,
+                "provider_type": s.provider_type,
+                "status": s.status,
+                "available": s.available,
+                "models": s.models,
+                "latency_ms": s.latency_ms,
+                "error": s.error,
+                "last_check": s.last_check.isoformat() if s.last_check else None,
+                "status_icon": s.status_icon,
+            }
+            for s in statuses
+        ]
+    )
+
+
+@router.post("/select", response_model=ModelSelectionResponse)
+async def select_model(request: ModelSelectionRequest):
+    """
+    Select model for a research session.
+
+    Allows users to:
+    - Select a specific provider and model
+    - Set routing mode (auto, local_only, cloud_only, hybrid)
+    - Override automatic routing decisions
+
+    Args:
+        request: Model selection request
+
+    Returns:
+        Selection result
+    """
+    # Validate routing mode
+    valid_routing_modes = ["auto", "local_only", "cloud_only", "hybrid"]
+    if request.routing_mode not in valid_routing_modes:
+        return ModelSelectionResponse(
+            success=False,
+            provider=request.provider,
+            model=request.model,
+            routing_mode=request.routing_mode,
+            message="",
+            error=f"Invalid routing_mode. Must be one of: {valid_routing_modes}",
+        )
+
+    # Validate provider
+    valid_providers = ["auto", "ollama", "openai", "anthropic", "google", "groq"]
+    if request.provider not in valid_providers:
+        return ModelSelectionResponse(
+            success=False,
+            provider=request.provider,
+            model=request.model,
+            routing_mode=request.routing_mode,
+            message="",
+            error=f"Invalid provider. Must be one of: {valid_providers}",
+        )
+
+    registry = get_model_registry()
+    result = await registry.select_model(
+        session_id=request.session_id,
+        provider=request.provider,
+        model=request.model,
+        routing_mode=request.routing_mode,
+    )
+
+    return ModelSelectionResponse(
+        success=result["success"],
+        provider=result.get("provider", request.provider),
+        model=result.get("model", request.model),
+        routing_mode=result.get("routing_mode", request.routing_mode),
+        message=result.get("message", ""),
+        error=result.get("error"),
+    )
+
+
+@router.get("/selection/{session_id}")
+async def get_model_selection(session_id: str):
+    """
+    Get current model selection for a session.
+
+    Args:
+        session_id: Session identifier
+
+    Returns:
+        Current selection
+    """
+    registry = get_model_registry()
+    selection = registry.get_user_selection(session_id)
+
+    # Resolve actual model being used
+    provider, model = registry.resolve_model(session_id)
+
+    return {
+        "session_id": session_id,
+        "selected_provider": selection["provider"],
+        "selected_model": selection["model"],
+        "routing_mode": selection["routing_mode"],
+        "active_provider": provider,
+        "active_model": model,
+    }
+
+
+@router.post("/refresh-local")
+async def refresh_local_models():
+    """
+    Manually trigger refresh of local Ollama models.
+
+    Returns:
+        Refreshed model list
+    """
+    registry = get_model_registry()
+    models = await registry.refresh_local_models()
+
+    return {
+        "success": True,
+        "models": [m.name for m in models],
+        "count": len(models),
+    }

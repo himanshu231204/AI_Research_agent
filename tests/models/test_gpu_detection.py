@@ -492,6 +492,28 @@ class TestModelRegistry:
             assert "qwen3" in models
             assert "llama3" in models
 
+    @pytest.mark.asyncio
+    async def test_generate_uses_installed_model_when_default_missing(self, ollama_config):
+        """Test generate switches to an installed local model when qwen3 is unavailable."""
+        provider = OllamaProvider(ollama_config)
+
+        with patch.object(provider, "get_available_models", AsyncMock(return_value=["llama3.2:3b", "mistral:latest"])):
+            with patch.object(provider, "_get_client") as mock_get_client:
+                mock_client = AsyncMock()
+                mock_response = Mock()
+                mock_response.status_code = 200
+                mock_response.raise_for_status = Mock(return_value=None)
+                mock_response.json.return_value = {"response": "fallback ok"}
+                mock_client.post.return_value = mock_response
+                mock_get_client.return_value = mock_client
+
+                result = await provider.generate("Hello world")
+
+                assert result.content == "fallback ok"
+                assert result.model == "llama3.2:3b"
+                assert mock_client.post.await_count == 1
+                assert mock_client.post.call_args.kwargs["json"]["model"] == "llama3.2:3b"
+
 
 # Integration Tests
 

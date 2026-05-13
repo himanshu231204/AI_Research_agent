@@ -21,11 +21,13 @@ import {
   FileText,
   Link2,
   AlertCircle,
+  Settings,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/cjs/styles/prism';
+import { ModelSelector } from './model-selector';
 
 export function ChatInterface() {
   const [input, setInput] = useState('');
@@ -161,6 +163,22 @@ export function ChatInterface() {
 
   return (
     <div className="flex h-full flex-col">
+      {/* Chat Header with Model Selector */}
+      <div className="flex items-center justify-between border-b px-4 py-2">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold">Research Chat</h2>
+          {useResearchStore.getState().status !== 'pending' && (
+            <Badge variant="secondary" className="text-xs">
+              {useResearchStore.getState().status}
+            </Badge>
+          )}
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <ModelSelector />
+        </div>
+      </div>
+
       <ScrollArea className="flex-1 p-4">
         <div className="mx-auto max-w-3xl space-y-4">
           {messages.length === 0 && (

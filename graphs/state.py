@@ -62,11 +62,30 @@ class ResearchState(TypedDict):
     # Metadata
     metadata: Dict[str, Any]
 
+    # Model Selection State (User-controlled model selection)
+    # These fields persist across workflow execution, websocket updates, and retries
+    selected_provider: str  # "auto", "ollama", "openai", "anthropic", "google", "groq"
+    selected_model: str  # Model name (e.g., "qwen3", "gpt-4o")
+    routing_mode: str  # "auto", "local_only", "cloud_only", "hybrid"
+
+    # Active model info (resolved at runtime)
+    active_provider: str  # Actual provider being used
+    active_model: str  # Actual model being used
+
+    # Fallback tracking
+    fallback_occurred: bool  # Whether a fallback happened
+    fallback_reason: Optional[str]  # Reason for fallback
+    fallback_from: Optional[str]  # Original provider:model
+    fallback_to: Optional[str]  # Fallback provider:model
+
 
 def create_initial_state(
     session_id: str,
     query: str,
     max_reflections: int = 3,
+    selected_provider: str = "auto",
+    selected_model: str = "",
+    routing_mode: str = "auto",
 ) -> ResearchState:
     """
     Create initial state for a new research session.
@@ -75,6 +94,9 @@ def create_initial_state(
         session_id: Unique identifier for the session
         query: User's research query
         max_reflections: Maximum number of reflection cycles
+        selected_provider: User-selected provider (default: "auto")
+        selected_model: User-selected model (default: "")
+        routing_mode: User-selected routing mode (default: "auto")
 
     Returns:
         Initial ResearchState with default values
@@ -110,4 +132,14 @@ def create_initial_state(
             "completed_at": None,
             "model_used": None,
         },
+        # Model Selection State
+        "selected_provider": selected_provider,
+        "selected_model": selected_model,
+        "routing_mode": routing_mode,
+        "active_provider": "",
+        "active_model": "",
+        "fallback_occurred": False,
+        "fallback_reason": None,
+        "fallback_from": None,
+        "fallback_to": None,
     }

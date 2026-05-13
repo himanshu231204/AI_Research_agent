@@ -38,6 +38,8 @@ class MCPClientConfig:
     command: str = ""
     args: tuple = field(default_factory=tuple)
     env: Dict[str, str] = field(default_factory=dict)
+    # HTTP specific
+    headers: Dict[str, str] = field(default_factory=dict)
 
 
 class MCPClient:
@@ -79,6 +81,7 @@ class MCPClient:
             transport_config = TransportConfig(
                 transport_type=self.config.transport_type,
                 url=self.config.server_url,
+                headers=self.config.headers,
                 timeout=self.config.timeout,
                 max_retries=self.config.max_retries,
                 command=self.config.command,

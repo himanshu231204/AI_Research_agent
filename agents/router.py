@@ -19,6 +19,7 @@ from mcplib.registry import ToolRegistry, RegistryConfig
 from mcplib.client.pool import ConnectionPool, PoolConfig
 from mcplib.client.client import MCPClientConfig
 from mcplib.transport import TransportType
+from mcplib.config import load_mcp_config, get_enabled_mcp_servers
 
 logger = logging.getLogger(__name__)
 
@@ -60,56 +61,84 @@ class RouterAgent(BaseAgent):
         self._initialized = False
 
     async def initialize_mcp(self) -> None:
-        """Initialize MCP components for tool selection"""
+        """Initialize MCP components for tool selection using JSON configuration"""
         if self._initialized:
             return
 
         try:
-            # Create connection pool
-            pool_config = PoolConfig(max_connections=10)
+            # Load MCP configuration from JSON
+            mcp_config = load_mcp_config()
+
+            # Create connection pool from config
+            pool_config = PoolConfig(
+                max_connections=mcp_config.pool.max_connections,
+                max_per_server=mcp_config.pool.max_per_server,
+                connection_timeout=mcp_config.pool.connection_timeout,
+                idle_timeout=mcp_config.pool.idle_timeout,
+                max_retries=mcp_config.pool.max_retries,
+                health_check_interval=mcp_config.pool.health_check_interval,
+            )
             self._pool = ConnectionPool(pool_config)
 
-            # Register MCP servers
-            await self._pool.register_server(
-                MCPClientConfig(
-                    server_name="browser",
-                    server_url="http://browser-mcp:8080",
-                    transport_type=TransportType.HTTP,
+            # Register MCP servers from JSON config
+            enabled_servers = mcp_config.get_enabled_servers()
+            for server in enabled_servers:
+                transport_type = (
+                    TransportType.STDIO if server.transport == "stdio" else TransportType.HTTP
                 )
-            )
 
-            await self._pool.register_server(
-                MCPClientConfig(
-                    server_name="github",
-                    server_url="http://github-mcp:8080",
-                    transport_type=TransportType.HTTP,
+                await self._pool.register_server(
+                    MCPClientConfig(
+                        server_name=server.name,
+                        server_url=server.url,
+                        transport_type=transport_type,
+                        timeout=server.timeout,
+                        command=server.command,
+                        args=tuple(server.args),
+                        env=server.env,
+                        headers=server.config.get("headers", {}),
+                    )
                 )
-            )
-
-            await self._pool.register_server(
-                MCPClientConfig(
-                    server_name="filesystem",
-                    server_url="http://filesystem-mcp:8080",
-                    transport_type=TransportType.HTTP,
-                )
-            )
-
-            await self._pool.register_server(
-                MCPClientConfig(
-                    server_name="terminal",
-                    server_url="http://terminal-mcp:8080",
-                    transport_type=TransportType.HTTP,
-                )
-            )
+                    logger.info(f"Registered MCP server: {server.name} ({server.transport})")
+                    # Try to establish connection for HTTP/STDIO servers so tools can be discovered
+                    try:
+                        connected = await self._pool.connect_server(server.name)
+                        if connected:
+                            logger.info(f"Connected to MCP server: {server.name}")
+                        else:
+                            logger.warning(f"Failed to connect to MCP server: {server.name}")
+                    except Exception as e:
+                        logger.warning(f"Error connecting to MCP server {server.name}: {e}")
 
             # Create registry
-            registry_config = RegistryConfig(enable_auto_discovery=True)
+            registry_config = RegistryConfig(
+                enable_auto_discovery=mcp_config.registry.enable_auto_discovery,
+                discovery_interval=mcp_config.registry.discovery_interval,
+                cache_ttl=mcp_config.registry.cache_ttl,
+                max_tools=mcp_config.registry.max_tools,
+            )
             self._registry = ToolRegistry(registry_config, self._pool)
+
+            # Load tools from JSON configuration
+            server_configs = [
+                {
+                    "name": s.name,
+                    "enabled": s.enabled,
+                    "capabilities": s.capabilities,
+                    "timeout": s.timeout,
+                }
+                for s in enabled_servers
+            ]
+            await self._registry.load_from_config(server_configs)
+
             await self._registry.start()
 
             self._initialized = True
-            logger.info("MCP components initialized")
+            logger.info(f"MCP components initialized with {len(enabled_servers)} servers")
 
+        except FileNotFoundError as e:
+            logger.warning(f"MCP config file not found: {e}, using fallback mode")
+            self._initialized = False
         except Exception as e:
             logger.warning(f"MCP initialization failed: {e}, using fallback mode")
             self._initialized = False
@@ -220,8 +249,7 @@ class RouterAgent(BaseAgent):
 
                 response = await self.ollama.generate(
                     prompt=prompt,
-                    model="llama3.2",
-                    options={"temperature": 0.3},
+                    temperature=0.3,
                 )
 
                 # Parse LLM response
@@ -308,7 +336,44 @@ Respond in JSON format:
         return "unknown"
 
     def _fallback_tool_selection(self, task_type: str) -> ToolSelectionResult:
-        """Fallback rule-based tool selection"""
+        """Fallback rule-based tool selection using registry"""
+        # Use registry-based lookup if available
+        if self._registry and self._registry.tools:
+            # Get all tools and filter by category based on task type
+            category_map = {
+                "web_search": ["browser_navigate", "browser_evaluate", "browser_screenshot"],
+                "github_analysis": ["github_search_repos", "github_get_file", "github_list_files"],
+                "browser": [
+                    "browser_navigate",
+                    "browser_screenshot",
+                    "browser_click",
+                    "browser_type",
+                ],
+                "pdf_analysis": ["filesystem_read"],
+                "terminal": ["terminal_execute"],
+            }
+
+            relevant_tools = category_map.get(task_type, [])
+            selected = []
+
+            for tool_name in relevant_tools:
+                tool = self._registry.tools.get(tool_name)
+                if tool:
+                    selected.append(
+                        {
+                            "name": tool.name,
+                            "server": tool.server_name,
+                        }
+                    )
+
+            if selected:
+                return ToolSelectionResult(
+                    selected_tools=selected,
+                    reasoning=f"Registry-based fallback for task type: {task_type}",
+                    confidence=0.6,
+                )
+
+        # Fallback to hardcoded mapping if registry not available
         tool_map = {
             "web_search": [
                 {"name": "browser_navigate", "server": "browser"},

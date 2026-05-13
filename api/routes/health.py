@@ -162,6 +162,60 @@ async def queue_health() -> Dict[str, Any]:
     }
 
 
+@router.get("/health/routes")
+async def routes_health() -> Dict[str, Any]:
+    """
+    List all registered API routes.
+
+    Useful for debugging routing issues.
+    """
+    from fastapi.routing import get_api_router
+    from api.main import app
+
+    routes = []
+    for route in app.routes:
+        if hasattr(route, "path") and hasattr(route, "methods"):
+            routes.append(
+                {
+                    "path": route.path,
+                    "methods": list(route.methods) if route.methods else ["GET"],
+                    "name": getattr(route, "name", "unknown"),
+                }
+            )
+
+    return {
+        "timestamp": datetime.utcnow().isoformat(),
+        "total_routes": len(routes),
+        "routes": sorted(routes, key=lambda x: x["path"]),
+    }
+
+
+@router.get("/health/websocket")
+async def websocket_health() -> Dict[str, Any]:
+    """
+    WebSocket connection health status.
+
+    Returns active connections and session info.
+    """
+    from api.routes.websocket import manager
+
+    sessions = []
+    for session_id, connections in manager.active_connections.items():
+        sessions.append(
+            {
+                "session_id": session_id,
+                "connection_count": len(connections),
+            }
+        )
+
+    return {
+        "timestamp": datetime.utcnow().isoformat(),
+        "total_sessions": len(manager.active_connections),
+        "sessions": sessions,
+        "status": "healthy" if manager.active_connections else "idle",
+    }
+
+
 async def check_services() -> Dict[str, Any]:
     """Check health of all dependent services."""
     from api.config import get_settings

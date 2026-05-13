@@ -232,14 +232,47 @@ class DistributedResearchGraph:
                 "status": "failed",
             }
 
+    def _validate_task(self, task: Dict[str, Any]) -> tuple[bool, str]:
+        """
+        Validate a task before dispatch.
+
+        Args:
+            task: Task dictionary
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        task_type = task.get("type", "")
+        description = task.get("description", "")
+        task_id = task.get("id", "")
+
+        # Check required fields
+        if not task_type:
+            return False, "Task type is required"
+
+        if not description:
+            return False, "Task description is required"
+
+        # Validate task type
+        valid_types = ["web_search", "github_analysis", "pdf_analysis", "browser", "rag", "general"]
+        if task_type not in valid_types:
+            return False, f"Invalid task type: {task_type}. Valid types: {valid_types}"
+
+        # Validate description is not empty
+        if not description or not description.strip():
+            return False, "Task description cannot be empty"
+
+        return True, ""
+
     async def _dispatcher_node(self, state: ResearchState) -> Dict[str, Any]:
         """
         Dispatch tasks to Celery workers for parallel execution.
 
         This is the key distributed execution node that:
-        1. Dispatches tasks to appropriate queues
-        2. Tracks pending tasks
-        3. Handles task correlation
+        1. Validates tasks before dispatch
+        2. Dispatches tasks to appropriate queues
+        3. Tracks pending tasks
+        4. Handles task correlation
 
         Args:
             state: Current research state
@@ -256,10 +289,42 @@ class DistributedResearchGraph:
         pending_task_ids = []
         dispatch_results = []
 
+        # Validate all tasks before dispatch
+        validation_errors = []
+        for task in tasks:
+            is_valid, error_msg = self._validate_task(task)
+            if not is_valid:
+                validation_errors.append(
+                    {
+                        "task_id": task.get("id", "unknown"),
+                        "task_type": task.get("type", "unknown"),
+                        "error": error_msg,
+                    }
+                )
+                logger.warning(
+                    f"[{self.session_id}] Task validation failed: {task.get('type')} - {error_msg}"
+                )
+
+        if validation_errors:
+            logger.warning(f"[{self.session_id}] {len(validation_errors)} tasks failed validation")
+
         for task in tasks:
             task_id = task.get("id", str(uuid.uuid4())[:8])
             task_type = task.get("type", "general")
             description = task.get("description", "")
+
+            # Validate task before dispatch
+            is_valid, error_msg = self._validate_task(task)
+            if not is_valid:
+                dispatch_results.append(
+                    {
+                        "task_id": task_id,
+                        "task_type": task_type,
+                        "status": "failed",
+                        "error": f"Validation failed: {error_msg}",
+                    }
+                )
+                continue
 
             # Create correlation ID for tracking
             correlation_id = f"{self.session_id}_{task_id}"
@@ -287,6 +352,7 @@ class DistributedResearchGraph:
                         "correlation_id": correlation_id,
                         "celery_id": celery_result.id,
                         "status": "dispatched",
+                        "task_type": task_type,
                     }
                 )
 
@@ -303,7 +369,14 @@ class DistributedResearchGraph:
                     }
                 )
 
-        logger.info(f"[{self.session_id}] Dispatched {len(pending_task_ids)} tasks to workers")
+        # Log dispatch summary
+        dispatched_count = len([r for r in dispatch_results if r.get("status") == "dispatched"])
+        failed_count = len([r for r in dispatch_results if r.get("status") == "failed"])
+
+        logger.info(
+            f"[{self.session_id}] Dispatch complete: "
+            f"{dispatched_count} dispatched, {failed_count} failed"
+        )
 
         return {
             "active_tasks": pending_task_ids,
@@ -311,7 +384,8 @@ class DistributedResearchGraph:
             "status": "dispatched",
             "metadata": {
                 "dispatcher_completed": True,
-                "total_dispatched": len(pending_task_ids),
+                "total_dispatched": dispatched_count,
+                "total_failed": failed_count,
                 "workflow_id": self.workflow_id,
             },
         }
@@ -373,11 +447,24 @@ class DistributedResearchGraph:
                 "session_id": self.session_id,
             }
 
-        # Add correlation ID
+        # Add distributed metadata for tracing and correlation
         params["correlation_id"] = correlation_id
+        params["workflow_id"] = self.workflow_id
+        params["trace_id"] = f"{self.workflow_id}_{correlation_id}"
+
+        # Log the dispatch with structured logging
+        logger.info(
+            f"[session_id={self.session_id}] [workflow_id={self.workflow_id}] "
+            f"[correlation_id={correlation_id}] Dispatching {task_type} task"
+        )
 
         # Dispatch to Celery
         result = celery_task.delay(**params)
+
+        logger.info(
+            f"[session_id={self.session_id}] [workflow_id={self.workflow_id}] "
+            f"[correlation_id={correlation_id}] Task dispatched, celery_id={result.id}"
+        )
 
         return result
 
@@ -405,9 +492,27 @@ class DistributedResearchGraph:
         state["status"] = "aggregating"
 
         pending_tasks = state.get("active_tasks", [])
+        dispatch_results = state.get("dispatch_results", [])
         completed_findings = []
         completed_sources = []
         failed_tasks = []
+
+        # First, check for dispatch failures (tasks that failed to dispatch)
+        for dispatch_result in dispatch_results:
+            if dispatch_result.get("status") == "failed":
+                failed_tasks.append(
+                    {
+                        "correlation_id": dispatch_result.get("correlation_id", "unknown"),
+                        "task_id": dispatch_result.get("task_id", "unknown"),
+                        "task_type": dispatch_result.get("task_type", "unknown"),
+                        "error": dispatch_result.get("error", "Dispatch failed"),
+                        "stage": "dispatch",
+                    }
+                )
+                logger.warning(
+                    f"[{self.session_id}] Dispatch failure detected: "
+                    f"{dispatch_result.get('task_type')} - {dispatch_result.get('error')}"
+                )
 
         # Wait for all tasks with timeout
         timeout = 120  # seconds
@@ -448,6 +553,7 @@ class DistributedResearchGraph:
                                     "celery_id": celery_id,
                                     "error": str(result.result),
                                     "task_type": task_info.get("task_type"),
+                                    "stage": "execution",
                                 }
                             )
                             logger.warning(
@@ -461,6 +567,7 @@ class DistributedResearchGraph:
                                 "celery_id": celery_id,
                                 "error": "timeout",
                                 "task_type": task_info.get("task_type"),
+                                "stage": "timeout",
                             }
                         )
 
@@ -471,6 +578,7 @@ class DistributedResearchGraph:
                             "correlation_id": correlation_id,
                             "error": str(e),
                             "task_type": task_info.get("task_type"),
+                            "stage": "error",
                         }
                     )
 
@@ -481,12 +589,28 @@ class DistributedResearchGraph:
         # Aggregate token usage from results
         total_tokens = self._sum_token_usage(completed_findings)
 
+        # Log aggregation results with detailed breakdown
         logger.info(
             f"[{self.session_id}] Aggregation complete: "
             f"{len(unique_findings)} findings, "
             f"{len(unique_sources)} sources, "
             f"{len(failed_tasks)} failed"
         )
+
+        # If there are dispatch failures, log them specifically
+        dispatch_failures = [f for f in failed_tasks if f.get("stage") == "dispatch"]
+        execution_failures = [
+            f for f in failed_tasks if f.get("stage") in ("execution", "timeout", "error")
+        ]
+
+        if dispatch_failures:
+            logger.warning(
+                f"[{self.session_id}] Dispatch failures: {len(dispatch_failures)} tasks failed to dispatch"
+            )
+        if execution_failures:
+            logger.warning(
+                f"[{self.session_id}] Execution failures: {len(execution_failures)} tasks failed during execution"
+            )
 
         return {
             "findings": unique_findings,
@@ -505,6 +629,8 @@ class DistributedResearchGraph:
                 "total_findings": len(unique_findings),
                 "total_sources": len(unique_sources),
                 "failed_count": len(failed_tasks),
+                "dispatch_failures": len(dispatch_failures),
+                "execution_failures": len(execution_failures),
                 "workflow_id": self.workflow_id,
             },
             "token_usage": {
@@ -748,12 +874,15 @@ class DistributedResearchGraph:
         reflection_count = state.get("reflection_count", 0)
         max_reflections = state.get("max_reflections", 3)
         findings = state.get("findings", [])
+        failed_tasks = state.get("failed_tasks", [])
+        dispatch_results = state.get("dispatch_results", [])
 
         # Log the reflection check
         logger.info(
             f"[{self.session_id}] REFLECTION CHECK: "
             f"{reflection_count}/{max_reflections} cycles, "
-            f"{len(findings)} findings"
+            f"{len(findings)} findings, "
+            f"{len(failed_tasks)} failed tasks"
         )
 
         # CRITICAL: Hard stop on max reflections
@@ -761,6 +890,22 @@ class DistributedResearchGraph:
             logger.info(
                 f"[{self.session_id}] REFLECTION STOPPED: "
                 f"Max reflections ({max_reflections}) reached"
+            )
+            return "writer"
+
+        # CRITICAL: Stop if no findings and all tasks failed (dispatch failure)
+        if len(findings) == 0 and len(failed_tasks) > 0:
+            logger.warning(
+                f"[{self.session_id}] REFLECTION STOPPED: "
+                f"No findings and {len(failed_tasks)} tasks failed - dispatch failure detected"
+            )
+            return "writer"
+
+        # CRITICAL: Stop if no findings and no dispatch results (early failure)
+        if len(findings) == 0 and len(dispatch_results) == 0:
+            logger.warning(
+                f"[{self.session_id}] REFLECTION STOPPED: "
+                f"No findings and no dispatch results - workflow failed early"
             )
             return "writer"
 

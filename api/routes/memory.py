@@ -23,6 +23,8 @@ from memory.vector_store import get_vector_store, VectorStoreProvider
 
 logger = logging.getLogger(__name__)
 
+# Memory endpoints are prefixed with /api/v1 by main.py
+# Additional prefix /memory is applied here for proper route organization
 router = APIRouter(prefix="/memory", tags=["Memory"])
 
 

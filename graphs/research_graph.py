@@ -10,6 +10,7 @@ This module implements the complete research workflow with:
 """
 
 import asyncio
+import copy
 import logging
 import uuid
 from typing import Any, Dict, List, Optional, AsyncGenerator
@@ -31,6 +32,36 @@ from workers.tasks.rag import semantic_retrieval
 from workers.tasks.reflection import analyze_findings
 
 logger = logging.getLogger(__name__)
+
+
+def update_state(state: ResearchState, updates: Dict[str, Any]) -> ResearchState:
+    """
+    Create a new state with updates (immutable pattern).
+
+    LangGraph requires returning a new state dict rather than mutating in-place.
+    This helper ensures immutable state updates.
+
+    Args:
+        state: Current state
+        updates: Dictionary of updates to apply
+
+    Returns:
+        New state with updates applied
+    """
+    # Deep copy to ensure immutability
+    new_state = copy.deepcopy(state)
+
+    for key, value in updates.items():
+        if key in new_state:
+            # Handle list appends specially
+            if isinstance(value, list) and key in ["tasks", "findings", "sources", "reflections"]:
+                existing = new_state.get(key, [])
+                if isinstance(existing, list):
+                    new_state[key] = existing + value
+            else:
+                new_state[key] = value
+
+    return new_state
 
 
 class DistributedResearchGraph:
@@ -160,12 +191,18 @@ class DistributedResearchGraph:
             state: Current research state
 
         Returns:
-            Updated state with tasks
+            Updated state with tasks (immutable update)
         """
         logger.info(f"[{self.session_id}] Running planner agent")
 
-        state["current_agent"] = "planner"
-        state["status"] = "planning"
+        # Use immutable state update
+        state = update_state(
+            state,
+            {
+                "current_agent": "planner",
+                "status": "planning",
+            },
+        )
 
         try:
             result = await self.planner.execute(state)
@@ -200,12 +237,18 @@ class DistributedResearchGraph:
             state: Current research state
 
         Returns:
-            Updated state with categorized tasks
+            Updated state with categorized tasks (immutable update)
         """
         logger.info(f"[{self.session_id}] Running router agent")
 
-        state["current_agent"] = "router"
-        state["status"] = "routing"
+        # Use immutable state update
+        state = update_state(
+            state,
+            {
+                "current_agent": "router",
+                "status": "routing",
+            },
+        )
 
         try:
             result = await self.router.execute(state)
@@ -516,14 +559,14 @@ class DistributedResearchGraph:
 
         # Wait for all tasks with timeout
         timeout = 120  # seconds
-        start_time = asyncio.get_event_loop().time()
+        start_time = asyncio.get_running_loop().time()
 
         for correlation_id in pending_tasks:
             if self._cancelled:
                 break
 
             # Check timeout
-            elapsed = asyncio.get_event_loop().time() - start_time
+            elapsed = asyncio.get_running_loop().time() - start_time
             if elapsed > timeout:
                 logger.warning(f"[{self.session_id}] Aggregation timeout reached")
                 break

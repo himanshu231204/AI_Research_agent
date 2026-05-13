@@ -45,6 +45,7 @@ celery_app = Celery(
         "workers.tasks.browser",
         "workers.tasks.rag",
         "workers.tasks.reflection",
+        "workers.tasks.inference",
     ],
 )
 
@@ -126,6 +127,7 @@ celery_app.conf.update(
         "workers.tasks.browser.*": {"queue": "browser"},
         "workers.tasks.rag.*": {"queue": "rag"},
         "workers.tasks.reflection.*": {"queue": "reflection"},
+        "workers.tasks.inference.*": {"queue": "local_inference"},
     },
     # Queue definitions
     task_default_queue=DEFAULT_QUEUE,
@@ -226,17 +228,6 @@ def on_task_failure(sender, task_id, exception, args, kwargs, traceback, einfo, 
         logger.error(f"Failed to route task {task_id} to dead-letter queue: {e}")
     # Original failure handling continues
     # Note: raising exception is not needed here as Celery already marks task failed
-
-    """Called when a task fails."""
-    logger.error(
-        f"Task {task_id} failed",
-        extra={
-            "task_id": task_id,
-            "task_name": sender,
-            "exception": str(exception),
-            "traceback": str(traceback),
-        },
-    )
 
 
 @task_success.connect

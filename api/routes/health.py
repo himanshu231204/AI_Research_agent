@@ -169,7 +169,6 @@ async def routes_health() -> Dict[str, Any]:
 
     Useful for debugging routing issues.
     """
-    from fastapi.routing import get_api_router
     from api.main import app
 
     routes = []
@@ -214,6 +213,98 @@ async def websocket_health() -> Dict[str, Any]:
         "sessions": sessions,
         "status": "healthy" if manager.active_connections else "idle",
     }
+
+
+@router.get("/health/vector-store")
+async def vector_store_health() -> Dict[str, Any]:
+    """
+    Vector store health check.
+
+    Returns status of ChromaDB or Qdrant.
+    """
+    from memory.vector_store import get_vector_store
+
+    try:
+        store = get_vector_store()
+        is_healthy = await store.health_check()
+
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "status": "healthy" if is_healthy else "unhealthy",
+            "provider": store.config.provider,
+            "initialized": store._initialized,
+        }
+    except Exception as e:
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "status": "unhealthy",
+            "error": str(e),
+        }
+
+
+@router.get("/health/sessions")
+async def sessions_health() -> Dict[str, Any]:
+    """
+    Session storage health check.
+
+    Returns status of Redis-backed session storage.
+    """
+    from memory.session_store import check_session_health
+
+    try:
+        health = await check_session_health()
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            **health,
+        }
+    except Exception as e:
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "status": "unhealthy",
+            "error": str(e),
+        }
+
+
+@router.get("/health/models")
+async def models_health() -> Dict[str, Any]:
+    """
+    Model registry health check.
+
+    Returns status of model providers and available models.
+    """
+    from models.registry import get_model_registry
+
+    try:
+        registry = get_model_registry()
+
+        # Get provider status
+        providers = await registry.get_provider_status()
+
+        # Get available models
+        models = await registry.get_available_models()
+
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "status": "healthy",
+            "providers": [
+                {
+                    "name": p.name,
+                    "type": p.provider_type,
+                    "status": p.status,
+                    "available": p.available,
+                    "latency_ms": p.latency_ms,
+                }
+                for p in providers
+            ],
+            "local_models": len(models.get("local", [])),
+            "cloud_models": sum(len(v) for v in models.get("cloud", {}).values()),
+        }
+    except Exception as e:
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "status": "unhealthy",
+            "error": str(e),
+        }
 
 
 async def check_services() -> Dict[str, Any]:

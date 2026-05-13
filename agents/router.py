@@ -99,16 +99,16 @@ class RouterAgent(BaseAgent):
                         headers=server.config.get("headers", {}),
                     )
                 )
-                    logger.info(f"Registered MCP server: {server.name} ({server.transport})")
-                    # Try to establish connection for HTTP/STDIO servers so tools can be discovered
-                    try:
-                        connected = await self._pool.connect_server(server.name)
-                        if connected:
-                            logger.info(f"Connected to MCP server: {server.name}")
-                        else:
-                            logger.warning(f"Failed to connect to MCP server: {server.name}")
-                    except Exception as e:
-                        logger.warning(f"Error connecting to MCP server {server.name}: {e}")
+                logger.info(f"Registered MCP server: {server.name} ({server.transport})")
+                # Try to establish connection for HTTP/STDIO servers so tools can be discovered
+                try:
+                    connected = await self._pool.connect_server(server.name)
+                    if connected:
+                        logger.info(f"Connected to MCP server: {server.name}")
+                    else:
+                        logger.warning(f"Failed to connect to MCP server: {server.name}")
+                except Exception as e:
+                    logger.warning(f"Error connecting to MCP server {server.name}: {e}")
 
             # Create registry
             registry_config = RegistryConfig(

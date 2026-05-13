@@ -359,7 +359,11 @@ class ChromaVectorStore(VectorStoreProvider):
             logger.info(f"ChromaDB initialized at {self.config.persist_directory}")
 
         except ImportError:
-            logger.warning("ChromaDB not installed, using mock mode")
+            logger.error(
+                "ChromaDB not installed - falling back to mock mode. "
+                "Vector operations will return empty results. "
+                "Install chromadb: pip install chromadb"
+            )
             self._initialized = True
             self._mock_mode = True
 
@@ -627,7 +631,11 @@ class QdrantVectorStore(VectorStoreProvider):
             logger.info(f"Qdrant initialized at {url}:{port}")
 
         except ImportError:
-            logger.warning("Qdrant not installed, using mock mode")
+            logger.error(
+                "Qdrant not installed - falling back to mock mode. "
+                "Vector operations will return empty results. "
+                "Install qdrant-client: pip install qdrant-client"
+            )
             self._initialized = True
             self._mock_mode = True
 

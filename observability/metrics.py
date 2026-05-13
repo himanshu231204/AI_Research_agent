@@ -17,6 +17,13 @@ from observability.logging import get_logger
 logger = get_logger(__name__)
 
 
+from prometheus_client import Counter, Gauge
+
+# Prometheus metrics
+ROUTING_REQUESTS = Counter('model_routing_requests_total', 'Total model routing requests', ['provider'])
+ROUTING_FALLBACKS = Counter('model_routing_fallbacks_total', 'Total model routing fallbacks', ['provider'])
+CIRCUIT_BREAKER_STATE = Gauge('model_circuit_breaker_state', 'Circuit breaker state (0=closed,1=open,2=half_open)', ['provider'])
+
 class MetricsCollector:
     """
     Collects and tracks metrics for the research system.

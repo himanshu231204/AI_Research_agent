@@ -1,0 +1,39 @@
+# Browser Sandbox Dockerfile
+# Isolated container for browser automation using Playwright
+
+FROM mcr.microsoft.com/playwright:v1.42.0-jammy
+
+# Set environment variables
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    SANDBOX_MODE=true \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    NODE_ENV=production
+
+# Install additional dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create working directory
+WORKDIR /app
+
+# Create artifacts directory
+RUN mkdir -p /artifacts && chmod 755 /artifacts
+
+# Copy browser automation scripts
+COPY browser-sandbox/ /app/
+
+# Set permissions
+RUN chmod +x /app/*.sh 2>/dev/null || true
+
+# Expose debugging port
+EXPOSE 9222
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:9222/json/version || exit 1
+
+# Run browser sandbox server
+CMD ["python", "-m", "http.server", "9222", "--directory", "/app"]

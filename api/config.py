@@ -140,6 +140,23 @@ class Settings(BaseSettings):
         default=["http://localhost:3000", "http://localhost:5173"],
         alias="CORS_ORIGINS",
     )
+    cors_allow_credentials: bool = Field(default=True, alias="CORS_ALLOW_CREDENTIALS")
+
+    # WebSocket Authentication
+    websocket_auth_enabled: bool = Field(default=True, alias="WEBSOCKET_AUTH_ENABLED")
+
+    # Rate Limiting
+    rate_limit_enabled: bool = Field(default=False, alias="RATE_LIMIT_ENABLED")
+    rate_limit_requests_per_minute: int = Field(default=60, alias="RATE_LIMIT_REQUESTS_PER_MINUTE")
+    rate_limit_burst: int = Field(default=100, alias="RATE_LIMIT_BURST")
+
+    # Logging
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    log_format: str = Field(default="json", alias="LOG_FORMAT")  # json or text
+
+    # Monitoring
+    enable_metrics: bool = Field(default=True, alias="ENABLE_METRICS")
+    metrics_port: int = Field(default=9090, alias="METRICS_PORT")
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -149,6 +166,26 @@ class Settings(BaseSettings):
             # Handle comma-separated string format from .env
             return [origin.strip() for origin in v.split(",") if origin.strip()]
         return v if isinstance(v, list) else [v]
+
+    @field_validator("cors_origins")
+    @classmethod
+    def validate_cors_for_production(cls, v: List[str], info) -> List[str]:
+        """Validate CORS origins for production environment."""
+        settings = info.data
+        environment = settings.get("environment", "development")
+
+        # In production, warn about wildcard origins
+        if environment.lower() == "production":
+            if "*" in v:
+                import warnings
+
+                warnings.warn(
+                    "CORS wildcard '*' detected in production! "
+                    "This is a security risk. Specify explicit origins.",
+                    stacklevel=4,
+                )
+
+        return v
 
     @property
     def is_production(self) -> bool:

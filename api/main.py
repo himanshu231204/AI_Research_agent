@@ -13,10 +13,13 @@ from typing import AsyncGenerator
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from api.config import get_settings
 from api.routes import health, research, websocket, memory, models
+from api.middleware.rate_limit import RateLimitMiddleware
 from observability.langsmith import configure_langsmith
 from models.registry import initialize_model_registry
 
@@ -136,14 +139,24 @@ def create_app() -> FastAPI:
     # Request logging middleware
     app.add_middleware(RequestLoggingMiddleware)
 
-    # CORS middleware
+    # Rate limiting middleware
+    if settings.rate_limit_enabled:
+        app.add_middleware(
+            RateLimitMiddleware,
+            requests_per_minute=settings.rate_limit_requests_per_minute,
+            burst=settings.rate_limit_burst,
+            enabled=settings.rate_limit_enabled,
+        )
+
+    # CORS middleware with security best practices
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_credentials=settings.cors_allow_credentials,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+        allow_headers=["Content-Type", "Authorization", "X-Request-ID", "X-CSRF-Token"],
         expose_headers=["X-Request-ID"],
+        max_age=600,  # Cache preflight for 10 minutes
     )
 
     # Include routers
@@ -169,10 +182,73 @@ def create_app() -> FastAPI:
     return app
 
 
+# Add exception handlers after app creation
+def add_exception_handlers(app: FastAPI):
+    """Add global exception handlers for consistent error responses."""
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+        """Handle HTTP exceptions with proper error format."""
+        request_id = getattr(request.state, "request_id", "unknown")
+        logger.warning(
+            f"HTTPException: {exc.status_code} - {exc.detail}",
+            extra={"request_id": request_id, "status_code": exc.status_code},
+        )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": exc.detail,
+                "status_code": exc.status_code,
+                "request_id": request_id,
+            },
+        )
+
+    @app.exception_handler(ValueError)
+    async def value_error_handler(request: Request, exc: ValueError):
+        """Handle ValueError exceptions."""
+        request_id = getattr(request.state, "request_id", "unknown")
+        logger.error(f"ValueError: {str(exc)}", extra={"request_id": request_id})
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": str(exc),
+                "status_code": 400,
+                "request_id": request_id,
+            },
+        )
+
+    @app.exception_handler(Exception)
+    async def general_exception_handler(request: Request, exc: Exception):
+        """Handle all unhandled exceptions - prevents leaking internal errors."""
+        request_id = getattr(request.state, "request_id", "unknown")
+        logger.error(
+            f"Unhandled exception: {type(exc).__name__}: {str(exc)}",
+            extra={"request_id": request_id, "exception_type": type(exc).__name__},
+            exc_info=True,
+        )
+        # Don't expose internal error details to clients in production
+        settings = get_settings()
+        error_message = (
+            "An internal error occurred"
+            if settings.environment.lower() == "production"
+            else str(exc)
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": error_message,
+                "status_code": 500,
+                "request_id": request_id,
+            },
+        )
+
+
 app = create_app()
+add_exception_handlers(app)
 
 # Initialize Prometheus metrics instrumentation
 from prometheus_fastapi_instrumentator import Instrumentator
+
 Instrumentator().instrument(app).expose(app)
 
 

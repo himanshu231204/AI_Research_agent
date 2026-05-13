@@ -454,6 +454,17 @@ async def get_cost_telemetry(session_id: str = "default"):
 
 
 @router.get("/routing/stats")
+async def routing_stats() -> Dict[str, Any]:
+    """
+    Return detailed routing statistics, circuit breaker status, and fallback counts.
+    """
+    router = get_model_router()
+    return {
+        "routing_stats": router.get_routing_stats(),
+        "circuit_breakers": router.get_circuit_breaker_status(),
+    }
+
+
 async def get_routing_stats():
     """
     Get routing statistics.
@@ -724,10 +735,10 @@ async def get_model_selection(session_id: str):
         Current selection
     """
     registry = get_model_registry()
-    selection = registry.get_user_selection(session_id)
+    selection = await registry.get_user_selection(session_id)
 
     # Resolve actual model being used
-    provider, model = registry.resolve_model(session_id)
+    provider, model = await registry.resolve_model(session_id)
 
     return {
         "session_id": session_id,

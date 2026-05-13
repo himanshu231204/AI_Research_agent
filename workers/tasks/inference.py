@@ -359,11 +359,47 @@ class EmbeddingsWorker:
 # Celery task wrappers
 
 
+def _run_async(coro):
+    """
+    Safely run async function in event loop with proper error handling.
+
+    Args:
+        coro: Coroutine to run
+
+    Returns:
+        Result from coroutine
+
+    Raises:
+        Exception: Re-raises any exception from the coroutine
+    """
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    except RuntimeError:
+        # Event loop already exists in this thread
+        loop = asyncio.get_event_loop()
+
+    try:
+        return loop.run_until_complete(coro)
+    except RuntimeError as e:
+        # Handle event loop in worker context
+        logger.error(f"Event loop error: {e}")
+        raise
+    finally:
+        # Only close if we created the loop
+        try:
+            loop.close()
+        except RuntimeError:
+            pass  # Loop was already running
+
+
 @celery_app.task(
     bind=True,
     name="inference.local",
     max_retries=3,
     default_retry_delay=30,
+    autoretry_for=(asyncio.TimeoutError, ConnectionError),
+    retry_backoff=True,
 )
 def local_inference_task(
     self,
@@ -403,12 +439,8 @@ def local_inference_task(
 
     worker = LocalInferenceWorker()
 
-    # Run async function in event loop
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
     try:
-        result = loop.run_until_complete(worker.process(request))
+        result = _run_async(worker.process(request))
         return {
             "content": result.content,
             "provider": result.provider,
@@ -421,8 +453,10 @@ def local_inference_task(
             "error": result.error,
             "fallback_used": result.fallback_used,
         }
-    finally:
-        loop.close()
+    except Exception as e:
+        logger.error(f"Local inference task failed: {e}")
+        # Retry will be handled by Celery's autoretry
+        raise self.retry(exc=e)
 
 
 @celery_app.task(
@@ -430,6 +464,8 @@ def local_inference_task(
     name="inference.cloud",
     max_retries=3,
     default_retry_delay=60,
+    autoretry_for=(asyncio.TimeoutError, ConnectionError),
+    retry_backoff=True,
 )
 def cloud_inference_task(
     self,
@@ -469,11 +505,8 @@ def cloud_inference_task(
 
     worker = CloudInferenceWorker()
 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
     try:
-        result = loop.run_until_complete(worker.process(request))
+        result = _run_async(worker.process(request))
         return {
             "content": result.content,
             "provider": result.provider,
@@ -487,8 +520,9 @@ def cloud_inference_task(
             "error": result.error,
             "fallback_used": result.fallback_used,
         }
-    finally:
-        loop.close()
+    except Exception as e:
+        logger.error(f"Cloud inference task failed: {e}")
+        raise self.retry(exc=e)
 
 
 @celery_app.task(
@@ -496,6 +530,8 @@ def cloud_inference_task(
     name="inference.embeddings",
     max_retries=3,
     default_retry_delay=30,
+    autoretry_for=(asyncio.TimeoutError, ConnectionError),
+    retry_backoff=True,
 )
 def embeddings_task(
     self,
@@ -516,25 +552,21 @@ def embeddings_task(
     """
     worker = EmbeddingsWorker()
 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
     try:
-        embeddings = loop.run_until_complete(worker.generate_embeddings(texts, model, provider))
+        embeddings = _run_async(worker.generate_embeddings(texts, model, provider))
         return {
             "embeddings": embeddings,
             "count": len(embeddings),
             "success": True,
         }
     except Exception as e:
+        logger.error(f"Embeddings task failed: {e}")
         return {
             "embeddings": [],
             "count": 0,
             "success": False,
             "error": str(e),
         }
-    finally:
-        loop.close()
 
 
 # Worker dispatch functions

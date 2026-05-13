@@ -4,32 +4,69 @@ import type { WSMessageType, ResearchUpdatePayload, AgentActivityPayload, TokenS
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
 const WS_PREFIX = '/ws';
 
+// Reconnection configuration
+const MAX_RECONNECT_ATTEMPTS = 10;
+const INITIAL_RECONNECT_DELAY = 1000;
+const MAX_RECONNECT_DELAY = 30000;
+const RECONNECT_JITTER = 0.3; // 30% jitter
+const HEARTBEAT_INTERVAL = 30000;
+const CONNECTION_TIMEOUT = 10000;
+
 type MessageHandler = (payload: unknown) => void;
 
 class WebSocketService {
   private ws: WebSocket | null = null;
   private sessionId: string | null = null;
+  private authToken: string | null = null;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
-  private reconnectDelay = 1000;
+  private maxReconnectAttempts = MAX_RECONNECT_ATTEMPTS;
+  private reconnectDelay = INITIAL_RECONNECT_DELAY;
   private heartbeatInterval: NodeJS.Timeout | null = null;
+  private connectionTimeout: NodeJS.Timeout | null = null;
   private handlers: Map<WSMessageType, Set<MessageHandler>> = new Map();
   private isIntentionalClose = false;
+  private isReconnecting = false;
 
-  connect(sessionId: string): void {
+  /**
+   * Connect to WebSocket with optional authentication token.
+   * 
+   * @param sessionId - The session ID for the connection
+   * @param token - Optional JWT token for authentication
+   */
+  connect(sessionId: string, token?: string): void {
+    // Close existing connection if session ID changed
+    if (this.ws && this.sessionId !== sessionId) {
+      this.disconnect();
+    }
+
+    // Don't reconnect if already connected to the right session
     if (this.ws?.readyState === WebSocket.OPEN && this.sessionId === sessionId) {
       return;
     }
 
     this.sessionId = sessionId;
+    this.authToken = token || null;
     this.isIntentionalClose = false;
 
     try {
-      // Build WebSocket URL - WebSocket is at root level, not under /api/v1 prefix
-      const wsUrl = `${WS_URL}${WS_PREFIX}/${sessionId}`;
+      // Build WebSocket URL with optional token
+      let wsUrl = `${WS_URL}${WS_PREFIX}/${sessionId}`;
+      if (this.authToken) {
+        wsUrl += `?token=${encodeURIComponent(this.authToken)}`;
+      }
       console.log(`[WebSocket] Connecting to: ${wsUrl}`);
+      
       this.ws = new WebSocket(wsUrl);
       this.setupEventHandlers();
+      
+      // Set connection timeout
+      this.connectionTimeout = setTimeout(() => {
+        if (this.ws?.readyState !== WebSocket.OPEN) {
+          console.warn('[WebSocket] Connection timeout, closing...');
+          this.ws?.close();
+        }
+      }, CONNECTION_TIMEOUT);
+      
     } catch (error) {
       console.error('WebSocket connection error:', error);
       useWSStore.getState().setConnectionError('Failed to connect');
@@ -42,9 +79,18 @@ class WebSocketService {
 
     this.ws.onopen = () => {
       console.log('WebSocket connected');
+      
+      // Clear connection timeout
+      if (this.connectionTimeout) {
+        clearTimeout(this.connectionTimeout);
+        this.connectionTimeout = null;
+      }
+      
       useWSStore.getState().setConnected(true);
       useWSStore.getState().setConnectionError(null);
       this.reconnectAttempts = 0;
+      this.reconnectDelay = INITIAL_RECONNECT_DELAY; // Reset delay on successful connection
+      this.isReconnecting = false;
       this.startHeartbeat();
     };
 
@@ -59,10 +105,18 @@ class WebSocketService {
 
     this.ws.onclose = (event) => {
       console.log('WebSocket closed:', event.code, event.reason);
+      
+      // Clear connection timeout
+      if (this.connectionTimeout) {
+        clearTimeout(this.connectionTimeout);
+        this.connectionTimeout = null;
+      }
+      
       useWSStore.getState().setConnected(false);
       this.stopHeartbeat();
 
-      if (!this.isIntentionalClose) {
+      // Don't reconnect on normal closure or intentional close
+      if (!this.isIntentionalClose && event.code !== 1000) {
         this.scheduleReconnect();
       }
     };
@@ -279,19 +333,30 @@ class WebSocketService {
   }
 
   private scheduleReconnect(): void {
+    // Prevent multiple simultaneous reconnection attempts
+    if (this.isReconnecting) {
+      return;
+    }
+    
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.error('Max reconnection attempts reached');
-      useWSStore.getState().setConnectionError('Max reconnection attempts reached');
+      useWSStore.getState().setConnectionError('Max reconnection attempts reached. Please refresh the page.');
       return;
     }
 
-    const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts);
-    console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1})`);
+    this.isReconnecting = true;
+    
+    // Calculate delay with exponential backoff and jitter
+    const baseDelay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts);
+    const jitter = baseDelay * RECONNECT_JITTER * Math.random();
+    const delay = Math.min(baseDelay + jitter, MAX_RECONNECT_DELAY);
+    
+    console.log(`[WebSocket] Reconnecting in ${Math.round(delay)}ms (attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`);
     
     setTimeout(() => {
       this.reconnectAttempts++;
       if (this.sessionId) {
-        this.connect(this.sessionId);
+        this.connect(this.sessionId, this.authToken || undefined);
       }
     }, delay);
   }

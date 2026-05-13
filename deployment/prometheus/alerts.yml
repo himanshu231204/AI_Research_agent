@@ -1,0 +1,166 @@
+# Prometheus Alerting Rules for Research OS
+# Place in /etc/prometheus/rules/ or equivalent
+
+groups:
+  - name: research_os_alerts
+    interval: 30s
+    rules:
+      # High Priority Alerts
+      
+      # API Down
+      - alert: APIDown
+        expr: up{job="research-agent-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "API service is down"
+          description: "Research OS API has been down for more than 1 minute"
+      
+      # High Error Rate
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is above 10% for more than 5 minutes"
+      
+      # Celery Workers Down
+      - alert: CeleryWorkersDown
+        expr: celery_workers_active == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: workers
+        annotations:
+          summary: "All Celery workers are down"
+          description: "No active Celery workers detected"
+      
+      # Redis Down
+      - alert: RedisDown
+        expr: up{job="research-agent-redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: redis
+        annotations:
+          summary: "Redis service is down"
+          description: "Redis broker is unavailable"
+      
+      # Ollama Down
+      - alert: OllamaDown
+        expr: up{job="research-agent-ollama"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          component: models
+        annotations:
+          summary: "Ollama service is down"
+          description: "Local LLM service unavailable"
+      
+      # Medium Priority Alerts
+      
+      # High Queue Depth
+      - alert: HighQueueDepth
+        expr: celery_queue_length > 100
+        for: 10m
+        labels:
+          severity: warning
+          component: workers
+        annotations:
+          summary: "High queue depth detected"
+          description: "Queue {{ $labels.queue }} has {{ $value }} pending tasks"
+      
+      # High Memory Usage
+      - alert: HighMemoryUsage
+        expr: (container_memory_usage_bytes / container_spec_memory_limit) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "High memory usage"
+          description: "Container {{ $labels.container }} using {{ $value | humanizePercentage }} of memory"
+      
+      # High CPU Usage
+      - alert: HighCPUUsage
+        expr: rate(container_cpu_usage_seconds_total[5m]) > 0.8
+        for: 15m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "High CPU usage"
+          description: "Container {{ $labels.container }} using >80% CPU for 15 minutes"
+      
+      # Model Fallback Rate
+      - alert: HighFallbackRate
+        expr: rate(model_fallback_total[5m]) > 0.3
+        for: 10m
+        labels:
+          severity: warning
+          component: models
+        annotations:
+          summary: "High model fallback rate"
+          description: "More than 30% of requests are falling back to backup models"
+      
+      # Session Store Errors
+      - alert: SessionStoreErrors
+        expr: rate(session_store_errors_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: storage
+        annotations:
+          summary: "High session store error rate"
+          description: "Session storage is experiencing errors"
+      
+      # WebSocket Disconnections
+      - alert: HighWebSocketDisconnections
+        expr: rate(websocket_disconnections_total[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: websocket
+        annotations:
+          summary: "High WebSocket disconnection rate"
+          description: "More than 5 WebSocket disconnections per second"
+      
+      # Low Priority Alerts
+      
+      # Task Retry Rate
+      - alert: HighTaskRetryRate
+        expr: rate(celery_task_retry_total[5m]) > 0.1
+        for: 15m
+        labels:
+          severity: info
+          component: workers
+        annotations:
+          summary: "High task retry rate"
+          description: "Tasks are being retried frequently"
+      
+      # Vector Store Latency
+      - alert: HighVectorStoreLatency
+        expr: histogram_quantile(0.95, rate(vector_store_latency_seconds_bucket[5m])) > 2
+        for: 10m
+        labels:
+          severity: info
+          component: storage
+        annotations:
+          summary: "High vector store latency"
+          description: "95th percentile vector store latency above 2 seconds"
+      
+      # Model Latency
+      - alert: HighModelLatency
+        expr: histogram_quantile(0.95, rate(model_latency_seconds_bucket[5m])) > 30
+        for: 15m
+        labels:
+          severity: info
+          component: models
+        annotations:
+          summary: "High model inference latency"
+          description: "95th percentile model latency above 30 seconds"

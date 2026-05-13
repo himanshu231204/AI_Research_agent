@@ -458,7 +458,7 @@ class ModelRegistry:
 
         return statuses
 
-    def set_user_selection(
+    async def set_user_selection(
         self,
         session_id: str,
         provider: Optional[str] = None,
@@ -466,7 +466,7 @@ class ModelRegistry:
         routing_mode: Optional[str] = None,
     ) -> None:
         """
-        Store user model selection for a session.
+        Store user model selection for a session (thread-safe).
 
         Args:
             session_id: Session identifier
@@ -474,25 +474,26 @@ class ModelRegistry:
             model: Selected model
             routing_mode: Selected routing mode
         """
-        if session_id not in self._user_selections:
-            self._user_selections[session_id] = {
-                "provider": "auto",
-                "model": "",
-                "routing_mode": "auto",
-            }
+        async with self._lock:
+            if session_id not in self._user_selections:
+                self._user_selections[session_id] = {
+                    "provider": "auto",
+                    "model": "",
+                    "routing_mode": "auto",
+                }
 
-        if provider is not None:
-            self._user_selections[session_id]["provider"] = provider
-        if model is not None:
-            self._user_selections[session_id]["model"] = model
-        if routing_mode is not None:
-            self._user_selections[session_id]["routing_mode"] = routing_mode
+            if provider is not None:
+                self._user_selections[session_id]["provider"] = provider
+            if model is not None:
+                self._user_selections[session_id]["model"] = model
+            if routing_mode is not None:
+                self._user_selections[session_id]["routing_mode"] = routing_mode
 
-        logger.info(f"User selection for {session_id}: {self._user_selections[session_id]}")
+            logger.info(f"User selection for {session_id}: {self._user_selections[session_id]}")
 
-    def get_user_selection(self, session_id: str) -> Dict[str, str]:
+    async def get_user_selection(self, session_id: str) -> Dict[str, str]:
         """
-        Get user model selection for a session.
+        Get user model selection for a session (thread-safe).
 
         Args:
             session_id: Session identifier
@@ -500,10 +501,11 @@ class ModelRegistry:
         Returns:
             Dict with provider, model, routing_mode
         """
-        return self._user_selections.get(
-            session_id,
-            {"provider": "auto", "model": "", "routing_mode": "auto"},
-        )
+        async with self._lock:
+            return self._user_selections.get(
+                session_id,
+                {"provider": "auto", "model": "", "routing_mode": "auto"},
+            ).copy()
 
     def get_provider(self, name: str) -> Optional[LLMProvider]:
         """Get provider by name."""
@@ -521,7 +523,7 @@ class ModelRegistry:
         routing_mode: str = "auto",
     ) -> Dict[str, Any]:
         """
-        Select model for a session.
+        Select model for a session (thread-safe).
 
         Args:
             session_id: Session identifier
@@ -532,50 +534,57 @@ class ModelRegistry:
         Returns:
             Selection result
         """
-        # Validate provider
-        if provider != "auto" and provider not in self._providers:
-            return {
-                "success": False,
-                "error": f"Provider {provider} not available",
-            }
-
-        # Validate model for selected provider
-        if provider != "auto" and model:
-            provider_models = []
-            if provider == "ollama":
-                provider_models = [m.name for m in self._local_models]
-            else:
-                provider_models = self._cloud_models.get(provider, [])
-
-            if provider_models and model not in [m.name for m in provider_models]:
+        async with self._lock:
+            # Validate provider
+            if provider != "auto" and provider not in self._providers:
                 return {
                     "success": False,
-                    "error": f"Model {model} not available for {provider}",
+                    "error": f"Provider {provider} not available",
                 }
 
-        # Store selection
-        self.set_user_selection(
-            session_id=session_id,
-            provider=provider,
-            model=model,
-            routing_mode=routing_mode,
-        )
+            # Validate model for selected provider
+            if provider != "auto" and model:
+                provider_models = []
+                if provider == "ollama":
+                    provider_models = [m.name for m in self._local_models]
+                else:
+                    # Cloud models are stored as ModelInfo objects
+                    cloud_models = self._cloud_models.get(provider, [])
+                    provider_models = [m.name if hasattr(m, "name") else m for m in cloud_models]
 
-        return {
-            "success": True,
-            "provider": provider,
-            "model": model,
-            "routing_mode": routing_mode,
-            "message": f"Model selection updated: {provider}/{model}",
-        }
+                if provider_models and model not in provider_models:
+                    return {
+                        "success": False,
+                        "error": f"Model {model} not available for {provider}",
+                    }
 
-    def resolve_model(
+            # Store selection
+            if session_id not in self._user_selections:
+                self._user_selections[session_id] = {
+                    "provider": "auto",
+                    "model": "",
+                    "routing_mode": "auto",
+                }
+
+            self._user_selections[session_id]["provider"] = provider
+            self._user_selections[session_id]["model"] = model
+            self._user_selections[session_id]["routing_mode"] = routing_mode
+
+            return {
+                "success": True,
+                "provider": provider,
+                "model": model,
+                "routing_mode": routing_mode,
+                "message": f"Model selection updated: {provider}/{model}",
+            }
+
+    async def resolve_model(
         self,
         session_id: str,
         task_type: str = "general",
     ) -> tuple[str, str]:
         """
-        Resolve the actual model to use based on user selection and routing mode.
+        Resolve the actual model to use based on user selection and routing mode (thread-safe).
 
         Args:
             session_id: Session identifier
@@ -584,42 +593,47 @@ class ModelRegistry:
         Returns:
             Tuple of (provider, model)
         """
-        selection = self.get_user_selection(session_id)
-        provider = selection["provider"]
-        model = selection["model"]
-        routing_mode = selection["routing_mode"]
+        async with self._lock:
+            selection = self._user_selections.get(
+                session_id,
+                {"provider": "auto", "model": "", "routing_mode": "auto"},
+            ).copy()
 
-        # Auto mode - use routing logic
-        if provider == "auto" or routing_mode == "auto":
+            provider = selection["provider"]
+            model = selection["model"]
+            routing_mode = selection["routing_mode"]
+
+            # Auto mode - use routing logic
+            if provider == "auto" or routing_mode == "auto":
+                return self._auto_route(task_type)
+
+            # Local only mode
+            if routing_mode == "local_only":
+                if self._local_models:
+                    return ("ollama", self._local_models[0].name)
+                return self._auto_route(task_type)
+
+            # Cloud only mode
+            if routing_mode == "cloud_only":
+                cloud_providers = {k: v for k, v in self._providers.items() if k != "ollama"}
+                if cloud_providers:
+                    first_provider = list(cloud_providers.keys())[0]
+                    provider_obj = cloud_providers[first_provider]
+                    return (first_provider, provider_obj.config.default_model)
+                return self._auto_route(task_type)
+
+            # Hybrid mode - prefer local, fallback to cloud
+            if routing_mode == "hybrid":
+                if self._local_models:
+                    return ("ollama", self._local_models[0].name)
+                return self._auto_route(task_type)
+
+            # Explicit provider/model selection
+            if provider and model:
+                return (provider, model)
+
+            # Fallback to auto routing
             return self._auto_route(task_type)
-
-        # Local only mode
-        if routing_mode == "local_only":
-            if self._local_models:
-                return ("ollama", self._local_models[0].name)
-            return self._auto_route(task_type)
-
-        # Cloud only mode
-        if routing_mode == "cloud_only":
-            cloud_providers = {k: v for k, v in self._providers.items() if k != "ollama"}
-            if cloud_providers:
-                first_provider = list(cloud_providers.keys())[0]
-                provider_obj = cloud_providers[first_provider]
-                return (first_provider, provider_obj.config.default_model)
-            return self._auto_route(task_type)
-
-        # Hybrid mode - prefer local, fallback to cloud
-        if routing_mode == "hybrid":
-            if self._local_models:
-                return ("ollama", self._local_models[0].name)
-            return self._auto_route(task_type)
-
-        # Explicit provider/model selection
-        if provider and model:
-            return (provider, model)
-
-        # Fallback to auto routing
-        return self._auto_route(task_type)
 
     def _auto_route(self, task_type: str) -> tuple[str, str]:
         """Auto-route based on task type."""

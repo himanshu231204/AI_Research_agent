@@ -512,7 +512,7 @@ class ModelRouter:
         task_type: TaskType,
         policy: RoutingPolicy,
     ) -> tuple[LLMResponse, RoutingDecision]:
-        """Try a specific provider."""
+        """Attempt a request to a specific provider, updating Prometheus metrics."""
         provider_name, model = self._parse_provider_model(provider_model)
 
         # Check circuit breaker
